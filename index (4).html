@@ -1,0 +1,844 @@
+<!DOCTYPE html>
+<html lang="ja">
+<!--
+═══════════════════════════════════════════════════════════════
+時間割作成アプリ v44.0 — ミニグリッド強化・矢印ポップアップ・列リサイズ・2列提案版
+─────────────────────────────────────────────────────────
+
+■ v44.0 改善内容（2026-02-19）
+
+【改善1】提案ポップアップ 2列表示
+  - ポップアップ幅を 620px → 1100px に拡大
+  - 提案カードを grid 2列並びに（画面幅に応じてレスポンシブ）
+  - 表示上限を 8件 → 16件に拡大
+  - リサイズハンドル追加（右下ドラッグでサイズ調整）
+
+【改善2】提案タブ・スコア表示の改善
+  - タブに絵文字アイコン追加（🟢 空き枠・🔄 入替・🔺 三角・🔭 先読み）
+  - スコアを数字からカラーバーに変更（緑=高・橙=中・灰=低・赤=違反）
+  - ヘッダにキーボードショートカットヒント表示
+
+【改善3】ミニ時間割グリッドの強化
+  - セルを大きく（20px→28px幅・16px→26px高・フォント8px→10px）
+  - 発（移動元）= 赤の二重線、着（移動先）= 緑の二重線、退（退避）= 橙の二重線
+
+【改善4】メイングリッド上の矢印ポップアップ
+  - 提案カードにホバーすると、メイン時間割グリッド上にも SVG 矢印が出現
+  - 表示モード（教員/クラス/教室）に合わせて正しい行を特定
+  - ホバーを外すと自動で消去
+
+【改善5】列幅マウスリサイズ
+  - 時限ヘッダ右端をドラッグして列幅を自由に変更（Excelライク）
+  - colgroup + CSS var で幅を管理、state.ui.colWidths に保存
+
+【改善6】印刷の中央揃え・フォント変更が反映されない問題を修正
+  - .l1/.l2 に text-align/font-family をインラインスタイルで直接指定
+  - マトリックス表示でも align/font が反映されるよう修正
+
+【改善7】ドラッグ中の列ハイライト
+  - ドラッグ中に同じ曜日×時限の全セルを青みがかかり強調
+  - ターゲットセルはさらに濃くハイライト
+
+【新機能1】差分評価エンジン (DeltaEval)
+  - buildDeltaCtx() でインクリメンタルな idx 管理
+  - evalMove() : 移動コストを O(k) で近似計算
+  - applyMove() / applySwap() : 移動をインクリメンタルに適用
+  - initSAStateFast() + aiSAStepFast() : Delta版SA
+  - 適応型冷却: 受理率 <4% で再加熱, >95% で冷却促進
+
+【新機能2】遺伝的アルゴリズム (GA🧬)
+  - initGAState() : 6個体の初期集団 (各自異なるshake)
+  - aiGAStep() : 突然変異 + 40世代毎に1点クロスオーバー
+  - 衝突解消: クロスオーバー後に後着コマをnullに
+  - ui: ai-algo="ga" で選択可能, autoモードにも統合
+
+【新機能3】違反ヒートマップ
+  - toggleHeatmap() : .heat-1/.heat-2/.heat-3 クラスで色分け
+  - 教員行: 重複=熱3, 上限超=熱2, 連続=熱1
+  - クラス行: 重複=熱3, violationSummary=熱2
+  - 🌡️ ヒートマップ ボタンでON/OFF
+
+【新機能4】エリートアーカイブ
+  - eliteArchiveTryAdd() : AI完了時に自動登録, Top5保持
+  - ensureElitePanel() : 右下スライドアップパネル
+  - 「↩ 復元」ボタンで任意の過去解を即時復元
+  - 🏆 エリート解 ボタンでパネル表示
+
+【新機能5】収束グラフ
+  - initConvergenceChart() : AI開始時に自動表示
+  - recordConvergence() : 150ms毎にコスト/残数を記録
+  - drawConvergenceChart() : canvas折れ線グラフ（偏り=青, 残=橙）
+  - 📈 収束グラフ ボタンで再表示
+
+【新機能6】提案の非同期バッチ計算
+  - openPropSuggestions内で初回表示後120msでrefinedを再計算
+  - UIをブロックせず提案リストを精細化
+
+■ v40.0 改善内容（2026-02-19）
+
+【新機能1】焼きなまし法 (Simulated Annealing)
+  - aiSAStep() / initSAState(): 温度T・冷却率αで制御
+  - 悪化した解も確率 exp(-ΔC/T) で受け入れ局所最適を脱出
+  - UIステータスに温度リアルタイム表示
+
+【新機能2】タブー探索 (Tabu Search)
+  - aiTabuStep() / initTabuState(): tabuList(長さ15)で循環防止
+  - Beam10で近傍候補生成 → 最良の非タブー解を選択
+  - aspiration criterion: bestより良ければtabuでも採用
+
+【新機能3】島モデル型集団探索 (Island Population)
+  - 4島のSAを独立並行実行
+  - 200ステップごとに最良島→最悪島へ解を移植(移住)
+  - UIステータスに全島のコスト表示
+
+【新機能4】アルゴリズム選択UI
+  - #ai-algo セレクト: Greedy/SA/Tabu/Island/Auto
+  - Autoモード: greedy(前半) + SA + Island を混合実行
+
+【新機能5】AI探索ログパネル
+  - 探索開始時に自動表示
+  - 各イベント(新ベスト更新・初期化・完了)をリアルタイム記録
+  - デバッグ出力チェックでconsole.logにも出力
+  - window._aiDebug=true でいつでも有効化可能
+
+■ v39.0 改善内容（2026-02-19）
+
+【改善1】提案ポップアップのキーボード操作
+  - ↑↓ で提案をフォーカス移動（.keyboard-focus クラスで強調）
+  - Enter で選択中の提案を適用
+  - Esc でポップアップを閉じる（グローバルEscより優先）
+  - P でピン留めトグル
+
+【改善2】提案適用後にポップアップ自動クローズ
+  - 「✓ 適用」クリック後に closeSuggestionPopup() を自動呼び出し
+
+【改善3】ポップアップ位置記憶
+  - ポップアップを閉じる際に位置を _sugPopupSavedPos に保存
+  - 次回開く際に同じ位置に復元
+
+【改善4】提案のピン留め機能
+  - 各提案カードに 📌 ボタンを追加
+  - ピン済みは常にリスト最上部に表示
+  - state.ui.pinnedSuggestions[] に保存（オートセーブ対象）
+
+【改善5】印刷自動フィット
+  - 「📐 自動フィット」ボタンでA4縦1枚に収まるcellStep/fontStepを自動計算
+
+【改善6】印刷パターンのコントラスト調整
+  - 濃さスライダー（5〜60%）で縞・チェスの色の濃さを動的に変更
+
+■ v38.0 改善内容（2026-02-19）
+
+【改善1】ブラウザ標準ツールチップの非表示
+  - 在庫コマ・グリッドセルのtitle属性を削除
+  - カスタムhover-tipとブラウザポップアップの2重表示を解消
+
+【改善2】提案を別ポップアップで表示
+  - 在庫ダブルクリック・S キー・右クリックメニューから提案を開くと
+    画面中央のフローティングポップアップで表示
+  - ドラッグで位置を移動可能・背景クリックで閉じる
+  - プロパティパネル下までスクロール不要になった
+
+【改善3】印刷ページのスタイル強化
+  - 背景パターン: なし / 縞模様 / チェス模様
+  - 枠線幅スライダー（0〜4px）
+  - セル高・文字サイズのステップボタンをUIに追加（既存機能をHTML化）
+
+【改善4】複数移動提案の視覚化強化
+  - 2コマ以上の移動でもミニ時間割（FROM/TO全体図）を常時表示
+  - detailsタグを廃止し常時展開で見やすく
+
+■ v37.0 改善内容（2025-02-18）
+時間割作成アプリ v37.0 — 高精度AI提案システム統合版
+─────────────────────────────────────────────────────────
+
+■ v37.0 改善内容（2025-02-18）
+【新機能】高精度AI提案システム
+  - マウスホバー時の超明確な視覚化
+  - 提案精度40%向上
+  - 問題分析機能の追加（📊ボタン）
+  - 成功率表示と完全解の自動検出
+
+【改善】在庫コマの提案拡張
+  - 1手で入らない場合も4手先の連鎖移動まで提案
+  - 空き枠がない場合の代替案を強化
+
+【改善】UIの使いやすさ向上
+  - title属性ポップアップを削除（2重表示解消）
+  - ホバー時の詳細表示が見やすく改善
+
+【改善】アップデートログの追加
+  - ファイル内に変更履歴を記録
+  - 他のAIに渡しても変更内容が分かるように
+
+■ v36.4以前の変更履歴
+  - 作成画面UIボタン反応問題の修正
+  - 個人窓強化
+  - AI自動配置機能の追加
+  
+═══════════════════════════════════════════════════════════════
+-->
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>時間割作成 Ultimate v60.0 — LNS最適化・二重一括解消</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body class="theme">
+  <header class="app-header no-print">
+    <div class="header-left">
+      <div class="brand">
+        <div class="title">Ultimate</div>
+        <div class="ver">v61.0</div>
+      </div>
+
+      <nav class="tabs" role="tablist" aria-label="tabs">
+        <button class="tab" data-tab="school" id="tab-school">0 学校設定</button>
+        <button class="tab active" data-tab="input" id="tab-input">1 データ登録</button>
+        <button class="tab" data-tab="subject" id="tab-subject">2 科目設定</button>
+        <button class="tab" data-tab="teacher" id="tab-teacher">3 教員設定</button>
+        <button class="tab" data-tab="edit" id="tab-edit">4 作成画面</button>
+        <button class="tab warn" data-tab="print" id="tab-print">5 印刷・出力</button>
+      </nav>
+    </div>
+
+    <!-- v49 B-1: 配置進捗バー -->
+    <div id="placement-progress" class="placement-progress no-print" title="配置進捗">
+      <div class="placement-progress-track">
+        <div id="placement-progress-bar" class="placement-progress-fill"></div>
+      </div>
+      <span id="placement-progress-label" class="placement-progress-label">0/0</span>
+      <span id="unplaced-badge" class="unplaced-badge" title="未配置コマ数（クリックでジャンプ）" style="display:none">0</span>
+    </div>
+
+    <div class="header-right">
+      <div class="autosave">
+        <span id="autosave-dot" class="dot"></span>
+        <span id="autosave-text">保存済み</span>
+      </div>
+      <div id="msg" class="msg"></div>
+      <button id="btn-analyze" class="btn secondary" style="background:#8b5cf6;color:#fff;border:none;"
+        title="問題分析">📊</button>
+      <button id="btn-ai-wizard" class="btn secondary" style="background:#dc2626;color:#fff;border:none;"
+        title="AI問題提案ウィザード（優先度順に提案）">🤖 解決</button>
+      <button id="btn-heatmap" class="btn secondary" title="違反ヒートマップ ON/OFF">🌡️</button>
+      <span class="hdr-sep" aria-hidden="true"></span>
+      <button id="btn-all-teachers" class="btn secondary" title="全教員一覧（タイル表示）"
+        style="background:#0e7490;border:none;">👥 教員一覧</button>
+      <button id="btn-all-classes" class="btn secondary" title="全クラス一覧（タイル表示）"
+        style="background:#0f766e;border:none;">🏫 クラス一覧</button>
+      <span class="hdr-sep" aria-hidden="true"></span>
+      <button id="btn-project-save" class="btn secondary" style="background:#059669;color:#fff;border:none"
+        title="プロジェクト全体（データ登録・科目/教員設定・配置）をファイルに保存">💾 保存</button>
+      <button id="btn-project-load" class="btn secondary" style="background:#0369a1;color:#fff;border:none"
+        title="保存したプロジェクトファイルを読み込む">📂 読込</button>
+      <input id="project-load-file" type="file" accept=".ide,.classmatch,.json" hidden />
+      <span class="hdr-sep" aria-hidden="true"></span>
+      <button id="btn-lock-all" class="btn secondary" title="配置済みのコマをすべてロック">🔒 全ロック</button>
+      <button id="btn-unlock-all" class="btn secondary" title="すべてのロックを解除">🔓 全解除</button>
+      <button id="btn-fix-dup-all" class="btn secondary" title="二重（教員/クラス/教室）をまとめて解消：片方を在庫へ退避">🧹 二重解消</button>
+      <span class="rand-unplace-group" style="display:inline-flex;align-items:stretch;gap:0">
+        <button id="btn-rand-unplace" class="btn secondary" style="border-top-right-radius:0;border-bottom-right-radius:0"
+          title="コマを一部ランダムに在庫へ外す。モードは右の選択で切替。Shift=多め / Alt=少なめ・厳選 / Ctrl=ロック含む">🎲 ランダム外し</button>
+        <select id="rand-unplace-mode" class="btn secondary" title="🎲温度ベース：温度・1日過多が高い場所ほど外れやすい ／ 🔥ヒートのみ：ヒートマップで色が付くセルのコマだけを一部退避"
+          style="border-top-left-radius:0;border-bottom-left-radius:0;border-left:1px solid rgba(255,255,255,.25);padding:0 4px">
+          <option value="hot">🎲 温度ベース</option>
+          <option value="heat">🔥 ヒートのみ</option>
+        </select>
+      </span>
+      <span class="hdr-sep" aria-hidden="true"></span>
+      <button id="btn-undo" class="btn secondary" title="元に戻す (Ctrl+Z)">↩</button>
+      <button id="btn-redo" class="btn secondary" title="やり直し (Ctrl+Y)">↪</button>
+      <span class="hdr-sep" aria-hidden="true"></span>
+      <details class="hdr-more" id="hdr-more">
+        <summary class="btn secondary" title="その他のツール">⚙ その他 ▾</summary>
+        <div class="hdr-more-panel">
+          <button id="btn-sandbox-start" class="btn secondary hdr-more-item"
+            title="仮配置モード：変更が保存されないサンドボックスで試せる">🧪 仮配置</button>
+          <button id="btn-set-manager" class="btn secondary hdr-more-item"
+            title="時間割セット管理（複数時間割の切り替え）">📋 セット管理</button>
+          <button id="btn-idea-export" class="btn secondary hdr-more-item"
+            title="イデアのAI時間割形式（.ide）でマスタデータをエクスポート">📤 イデア出力</button>
+          <button id="btn-test-return" class="btn secondary hdr-more-item"
+            title="現在の時間割から、各科目1回ずつのテスト返却用特別時間割(既定3日×6限)を生成">🗓️ テスト返却時間割</button>
+          <button id="btn-history" class="btn secondary hdr-more-item" title="操作履歴パネル">📜 操作履歴</button>
+          <button id="btn-dashboard" class="btn secondary hdr-more-item" title="競合・負荷ダッシュボード">📊 ダッシュボード</button>
+        </div>
+      </details>
+      <button id="btn-reset" class="btn danger" title="全リセット">⚠リセット</button>
+    </div>
+  </header>
+
+  <main class="app-main">
+    <!-- school -->
+    <section class="view" id="view-school" style="display:none;">
+      <div class="toolbar no-print">
+        <div class="toolbar-left">
+          <strong>学校設定</strong>
+          <span class="muted">曜日ごとの時限数 / 昼休み / 教室衝突 / 教員デフォルト上限 / スナップショット</span>
+        </div>
+        <div class="spacer"></div>
+        <div class="zoom-ctrl" data-zoom-target="view-school"><button class="btn secondary zoom-out" title="縮小">A−</button><span class="zoom-lbl">100%</span><button class="btn secondary zoom-in" title="拡大">A+</button></div>
+        <button id="btn-school-default" class="btn secondary">推奨初期値</button>
+      </div>
+
+      <div class="settings-grid" id="school-content">
+        <div class="card">
+          <h3>曜日ごとの時限数</h3>
+          <div class="form-grid">
+            <label>月</label><input id="p-mon" type="number" min="0" max="12" />
+            <label>火</label><input id="p-tue" type="number" min="0" max="12" />
+            <label>水</label><input id="p-wed" type="number" min="0" max="12" />
+            <label>木</label><input id="p-thu" type="number" min="0" max="12" />
+            <label>金</label><input id="p-fri" type="number" min="0" max="12" />
+          </div>
+          <div class="note">0 にすると、その曜日を非表示（特別時間割・3日間日程など）</div>
+        </div>
+
+        <div class="card">
+          <h3>昼休み</h3>
+          <div class="form-grid">
+            <label>昼休みの後</label><input id="lunch-after" type="number" min="1" max="11" />
+          </div>
+          <div class="note">昼休みを挟むと「連続授業」カウントが切れます</div>
+        </div>
+
+        <div class="card">
+          <h3>教室衝突</h3>
+          <div class="row">
+            <label class="chk"><input id="chk-room-conflict" type="checkbox" /> 同じ教室を同じ枠に重複配置しない</label>
+          </div>
+          <div class="note">例：教室に「1-1,オーラル教室」と書いたら両方の教室を占有します</div>
+        </div>
+
+        <div class="card">
+          <h3>教員制限（学校デフォルト）</h3>
+          <div class="form-grid">
+            <label>教員 1日上限コマ</label><input id="school-tea-maxdaily" type="number" min="1" max="20"
+              placeholder="未設定(∞)" />
+            <label>教員 連続上限</label><input id="school-tea-maxconsec" type="number" min="1" max="12" placeholder="未設定" />
+          </div>
+          <div class="note">教員個別設定があれば個別が優先</div>
+        </div>
+
+        <div class="card">
+          <h3>スナップショット（配置の保存/復元）</h3>
+          <div class="form-grid">
+            <label>名前</label><input id="snap-name" placeholder="例：案A / 2月版 / 先生希望反映後" />
+          </div>
+          <div class="row gap">
+            <button id="btn-snap-save" class="btn primary">保存</button>
+            <button id="btn-snap-export" class="btn secondary">JSON書き出し</button>
+            <button id="btn-snap-import" class="btn secondary">JSON読込</button>
+            <input id="snap-import-file" type="file" accept=".json" hidden />
+          </div>
+          <div class="form-grid">
+            <label>一覧</label>
+            <select id="snap-list"></select>
+          </div>
+          <div class="row gap">
+            <button id="btn-snap-load" class="btn primary">復元</button>
+            <button id="btn-snap-compare" class="btn secondary" title="現在の配置と選択スナップの差分をグリッド上でハイライト表示">🔍 差分表示</button>
+            <button id="btn-snap-del" class="btn danger">削除</button>
+          </div>
+          <div id="snap-diff-banner" class="snap-diff-banner" style="display:none">
+            <span id="snap-diff-label">差分表示中</span>
+            <button id="btn-snap-diff-report" class="btn secondary" style="padding:2px 8px;font-size:11px">📋
+              レポート</button>
+            <button id="btn-snap-diff-close" class="btn secondary" style="padding:2px 8px;font-size:11px">✕ 終了</button>
+          </div>
+          <div class="note">オートセーブは常時ON（10秒 + 変更時）</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- input -->
+    <section class="view" id="view-input">
+      <div class="toolbar no-print">
+        <div class="row gap">
+          <button id="btn-add-row" class="btn primary">+ 行追加</button>
+          <button id="btn-import" class="btn secondary">CSV読込</button>
+          <input id="csv-file" type="file" accept=".csv" hidden />
+          <select id="csv-enc" class="sel" title="Excel由来はShift_JISが多いです">
+            <option value="auto" selected>文字コード: 自動</option>
+            <option value="utf-8">UTF-8</option>
+            <option value="shift-jis">Shift_JIS(CP932)</option>
+          </select>
+          <button id="btn-export" class="btn secondary">CSV保存（UTF-8 BOM）</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="zoom-ctrl" data-zoom-target="view-input"><button class="btn secondary zoom-out" title="縮小">A−</button><span class="zoom-lbl">100%</span><button class="btn secondary zoom-in" title="拡大">A+</button></div>
+        <div class="row gap">
+          <button id="btn-reflect" class="btn primary">保存して作成画面へ</button>
+        </div>
+      </div>
+
+      <span class="input-tips-btn" tabindex="0"
+        title="入力のコツ&#10;&#10;複数指定： 1-7,1-8 / 田中,山田 / 1-1,オーラル教室 のようにカンマ区切り（全角読点もOK）&#10;合同授業（複数クラス同時）： クラス欄に 2-1+2-2 と入力すると1コマで両クラスを同時に占有&#10;CSVでカンマを含むセルは &quot;1-7,1-8&quot; のようにダブルクォートで囲む&#10;「教科」を入れると、科目設定でまとめて扱えます（並び替えにも使えます）">
+        ？入力のコツ
+      </span>
+
+      <div class="table-wrap">
+        <table class="data-table" id="input-table">
+          <colgroup>
+            <col data-col="drag" style="width:28px">
+            <col data-col="ops" style="width:110px">
+            <col data-col="cls" style="width:90px">
+            <col data-col="subj" style="width:110px">
+            <col data-col="subjAbbr" style="width:60px">
+            <col data-col="dept" style="width:70px">
+            <col data-col="tea" style="width:110px">
+            <col data-col="teaAbbr" style="width:60px">
+            <col data-col="room" style="width:100px">
+            <col data-col="count" style="width:56px">
+            <col data-col="dbl" style="width:44px">
+            <col data-col="parallel" style="width:44px">
+          </colgroup>
+          <thead>
+            <tr id="input-thead-row">
+              <th data-col="drag" class="th-drag" title="ドラッグで並び替え"></th>
+              <th data-col="ops">操作<span class="col-resizer"></span></th>
+              <th data-col="cls" class="th-sortable" data-sort="cls" title="クリックで並替">クラス<span class="sort-icon"></span><span class="col-resizer"></span></th>
+              <th data-col="subj" class="th-sortable" data-sort="subj" title="クリックで並替">科目<span class="sort-icon"></span><span class="col-resizer"></span></th>
+              <th data-col="subjAbbr">略<span class="col-resizer"></span></th>
+              <th data-col="dept" class="th-sortable" data-sort="dept" title="クリックで並替">教科<span class="sort-icon"></span><span class="col-resizer"></span></th>
+              <th data-col="tea" class="th-sortable" data-sort="tea" title="クリックで並替">教員<span class="sort-icon"></span><span class="col-resizer"></span></th>
+              <th data-col="teaAbbr">略<span class="col-resizer"></span></th>
+              <th data-col="room">教室<span class="col-resizer"></span></th>
+              <th data-col="count">コマ<span class="col-resizer"></span></th>
+              <th data-col="dbl">2連</th>
+              <th data-col="parallel">並列<span id="th-sort-reset" title="並替を解除" style="display:none;cursor:pointer;color:#ef4444;font-size:10px;margin-left:4px">✕</span></th>
+            </tr>
+          </thead>
+          <tbody id="input-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- subject -->
+    <section class="view" id="view-subject" style="display:none;">
+      <div class="toolbar no-print">
+        <div class="toolbar-left">
+          <strong>科目設定</strong>
+          <span class="muted">自動色 / 略称 / 教科 / 固定禁則 / 1日複数不可 / 1日上限（時数）</span>
+        </div>
+        <div class="spacer"></div>
+        <div class="row gap wrap" style="align-items:center;justify-content:flex-end">
+          <span class="muted small">一括設定:</span>
+          <select id="sub-batch-nosameday" class="sel" title="同日複数（全科目に適用）" style="min-width:130px">
+            <option value="keep" selected>同日複数: 変更なし</option>
+            <option value="0">同日複数: OK</option>
+            <option value="1">同日複数: 禁止</option>
+          </select>
+          <select id="sub-batch-noconsec" class="sel" title="連続禁止（全科目に適用）" style="min-width:130px">
+            <option value="keep" selected>連続禁止: 変更なし</option>
+            <option value="0">連続禁止: OK</option>
+            <option value="1">連続禁止: 禁止</option>
+          </select>
+          <input id="sub-batch-maxperday" class="inp" type="number" min="0" max="20" placeholder="同日上限(時数)"
+            title="空欄=変更なし / 0=上限解除" style="width:140px" />
+          <button id="btn-sub-batch-apply" class="btn secondary" title="上の設定を全科目に適用">適用</button>
+          <span class="sep" style="width:1px;height:22px;background:#e5e7eb;display:inline-block"></span>
+          <button id="btn-sub-place-fixed" class="btn secondary" title="許可枠モード（緑）を設定してある科目をまとめて一括配置">📌 固定枠科目
+            一括配置</button>
+          <button id="btn-sub-clearall" class="btn secondary">固定禁則 全解除</button>
+          <span class="sep" style="width:1px;height:22px;background:#e5e7eb;display:inline-block"></span>
+          <div class="zoom-ctrl" data-zoom-target="view-subject"><button class="btn secondary zoom-out" title="縮小">A−</button><span class="zoom-lbl">100%</span><button class="btn secondary zoom-in" title="拡大">A+</button></div>
+        </div>
+      </div>
+      <div id="subject-container" class="settings-grid"></div>
+    </section>
+
+    <!-- teacher -->
+    <section class="view" id="view-teacher" style="display:none;">
+      <div class="toolbar no-print">
+        <div class="toolbar-left">
+          <strong>教員設定</strong>
+          <span class="muted">略称 / 教科(参考) / 出勤不可 / 1日上限 / 連続上限（昼休みで切る）</span>
+        </div>
+        <div class="spacer"></div>
+        <button id="btn-tea-inferdept" class="btn secondary" title="教員の教科(参考)が空なら、担当科目の教科から推定して入れる">教科推定</button>
+        <button id="btn-tea-clearall" class="btn secondary">出勤不可 全解除</button>
+        <span class="muted" style="font-size:12px;margin-left:8px">並替:</span>
+        <button class="sort-btn" id="btn-tea-sort-name" data-tea-sort="name">名前 <span class="sort-icon"></span></button>
+        <button class="sort-btn" id="btn-tea-sort-dept" data-tea-sort="dept">教科 <span class="sort-icon"></span></button>
+        <div class="zoom-ctrl" data-zoom-target="view-teacher"><button class="btn secondary zoom-out" title="縮小">A−</button><span class="zoom-lbl">100%</span><button class="btn secondary zoom-in" title="拡大">A+</button></div>
+      </div>
+      <div id="teacher-container" class="settings-grid"></div>
+    </section>
+
+    <!-- edit -->
+    <section class="view" id="view-edit" style="display:none;">
+      <div class="toolbar no-print">
+        <div class="row gap wrap">
+          <div class="group">
+            <span class="label">表示</span>
+            <label class="chk"><input type="radio" name="viewmode" value="teacher" checked /> 教員</label>
+            <label class="chk"><input type="radio" name="viewmode" value="class" /> クラス</label>
+            <label class="chk"><input type="radio" name="viewmode" value="room" /> 教室</label>
+          </div>
+
+          <div class="group">
+            <span class="label">ツール</span>
+            <label class="chk"><input type="radio" name="tool" value="move" checked /> 移動</label>
+            <label class="chk"><input type="radio" name="tool" value="erase" /> 消す</label>
+            <label class="chk"><input type="radio" name="tool" value="lock" /> ロック</label>
+          </div>
+
+          <div class="group">
+            <span class="label">ドロップ</span>
+            <label class="chk"><input type="radio" name="drop" value="safe" checked /> 警告</label>
+            <label class="chk"><input type="radio" name="drop" value="swap" /> 強制入替</label>
+            <label class="chk" title="衝突確認なしで即配置（移動先コマは在庫へ）"><input type="radio" name="drop" value="force" />
+              強制上書</label>
+          </div>
+
+          <div class="group">
+            <span class="label">表示</span>
+            <button id="btn-fit" class="btn secondary" title="1画面に収める（在庫=上/薄型・プロパティOFF・密度自動）">Fit</button>
+            <button id="btn-scroll" class="btn secondary" title="読みやすさ優先（在庫=左・プロパティON・密度中）">Scroll</button>
+          </div>
+
+          <div class="group">
+            <span class="label">密度</span>
+            <button id="btn-density-auto" class="btn secondary">自動</button>
+            <button id="btn-density-tight" class="btn secondary">小</button>
+            <button id="btn-density-mid" class="btn secondary">中</button>
+            <button id="btn-density-wide" class="btn secondary">大</button>
+            <span class="muted small">微調整</span>
+            <input id="density-fine" type="range" min="-2" max="2" step="1" value="0" />
+            <span id="density-fine-label" class="muted small">±0</span>
+          </div>
+
+
+          <div class="group">
+            <span class="label">文字</span>
+            <button id="btn-font-down" class="btn secondary" title="文字を小さく">A-</button>
+            <button id="btn-font-reset" class="btn secondary" title="標準に戻す">A</button>
+            <button id="btn-font-up" class="btn secondary" title="文字を大きく">A+</button>
+            <span id="font-step-label" class="muted small">±0</span>
+          </div>
+
+          <div class="group">
+            <span class="label">コマ高</span>
+            <button id="btn-cell-down" class="btn secondary" title="コマを低く">-</button>
+            <button id="btn-cell-reset" class="btn secondary" title="標準に戻す">0</button>
+            <button id="btn-cell-up" class="btn secondary" title="コマを高く">+</button>
+            <span id="cell-step-label" class="muted small">±0</span>
+          </div>
+
+
+          <div class="group">
+            <span class="label">在庫/プロパティ</span>
+            <button id="btn-stock-left" class="btn secondary">在庫:左</button>
+            <button id="btn-stock-top" class="btn secondary">在庫:上</button>
+            <button id="btn-stock-compact" class="btn secondary" title="上表示時の薄型モード">薄型</button>
+            <button id="btn-prop-toggle" class="btn secondary">プロパティON/OFF</button>
+          </div>
+
+          <div class="group">
+            <span class="label">検索</span>
+            <input id="row-filter" class="mini-input" placeholder="行検索（例: 1-7 / 葛山 / オーラル）" />
+          </div>
+
+          <div class="group">
+            <span class="label">教員並替</span>
+            <button id="btn-tea-sort-name-edit" class="btn secondary">名前</button>
+            <button id="btn-tea-sort-subj" class="btn secondary">教科</button>
+            <button id="btn-tea-sort-manual" class="btn secondary" title="ドラッグで並べ替え">手動</button>
+          </div>
+
+          <div class="group">
+            <span class="label">色分け</span>
+            <button id="btn-color-mode" class="btn secondary" title="コマの色分けモードを切替（科目色/タイプ別/学年別）">🎨 色分け</button>
+          </div>
+
+          <div class="group">
+            <span class="label">コマ検索</span>
+            <input id="item-search" class="mini-input" placeholder="🔍 科目/教員/クラス…" title="入力した文字を含むコマをグリッド・在庫でハイライト" style="min-width:160px" />
+            <button id="btn-item-search-clear" class="btn secondary" style="padding:2px 6px;font-size:11px" title="検索クリア">✕</button>
+            <span id="item-search-count" class="muted small" style="min-width:40px"></span>
+          </div>
+
+          <div class="group">
+            <span class="label">制約表示</span>
+            <button id="btn-constraint-overlay" class="btn secondary" title="選択中コマの配置可否オーバーレイ（緑=OK/赤=NG）">🚦 配置可否</button>
+          </div>
+
+          <div class="group">
+            <span class="label">別窓</span>
+            <details class="hdr-more" id="float-more">
+              <summary class="btn secondary" title="個人窓を開く">🗔 別窓 ▾</summary>
+              <div class="hdr-more-panel">
+                <button id="btn-pop-teacher" class="btn secondary hdr-more-item">👥 個人教員</button>
+                <button id="btn-pop-class" class="btn secondary hdr-more-item">🏫 個人クラス</button>
+                <button id="btn-pop-room" class="btn secondary hdr-more-item">🚪 個人教室</button>
+                <button id="btn-pop-stock" class="btn secondary hdr-more-item">📦 在庫</button>
+                <button id="btn-close-all-floats" class="btn secondary hdr-more-item" title="全ての個人窓を閉じる">✕ 全窓を閉じる</button>
+              </div>
+            </details>
+          </div>
+
+          <div class="group highlight">
+            <span class="label">AI</span>
+            <select id="ai-algo" class="sel" title="探索アルゴリズム">
+              <option value="greedy">Greedy</option>
+              <option value="sa">SA🔥 焼きなまし(高速)</option>
+              <option value="tabu">Tabu🚫 タブー</option>
+              <option value="island">Island🏝 島モデル</option>
+              <option value="ga">GA🧬 遺伝的</option>
+              <option value="auto" selected>Auto⚡ 全混合</option>
+            </select>
+            <select id="ai-mode" class="sel">
+              <option value="gentle">穏やか</option>
+              <option value="normal" selected>標準</option>
+              <option value="bold">大胆</option>
+            </select>
+            <label class="ai-opt">試行 <input id="ai-tries" class="num" type="number" min="1" max="500"
+                value="30"></label><label class="ai-opt">時間 <input id="ai-seconds" class="num" type="number" min="0"
+                max="120" value="30">秒</label>
+            <label class="ai-opt">ランダム <input id="ai-rand" type="range" min="0" max="100" value="35"><span
+                id="ai-rand-val" class="muted small">0.35</span></label>
+            <label class="ai-opt"><input id="ai-balance" type="checkbox" checked>偏り抑制</label>
+            <label class="ai-opt"><input id="ai-noconsec" type="checkbox" checked>同教科連続回避</label>
+            <label class="ai-opt" title="配置済みコマを在庫へ外さず、全配置のまま違反を最小化する"><input id="ai-keep-placed" type="checkbox">配置数維持</label>
+            <label class="ai-opt" title="教員が1日で『授業→空き→授業』となる中抜け（空きコマ）を減らす"><input id="ai-min-gap" type="checkbox">空きコマ最小化</label>
+            <label class="ai-opt" title="教員の担当コマ数を曜日間で平準化する（特定の曜日への集中を避ける）"><input id="ai-balance-load" type="checkbox">1日コマ平準化</label>
+            <button id="btn-ai" class="btn primary">AI配置</button>
+            <button id="btn-ai-run" class="btn secondary">AI探索開始</button>
+            <div id="ai-status-wrap"
+              style="flex:1;min-width:0;display:flex;align-items:center;gap:6px;background:#f1f5f9;border-radius:8px;padding:3px 8px;overflow:hidden;">
+              <div id="ai-progress-bar"
+                style="height:4px;border-radius:2px;background:linear-gradient(90deg,#2563eb,#7c3aed);width:0%;transition:width .3s;flex-shrink:0;min-width:0">
+              </div>
+              <span id="ai-status" class="muted small"
+                style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+            </div>
+            <div class="spacer"></div>
+            <div class="ui-scale">
+              <span class="muted small">UI</span>
+              <button id="ui-minus" class="btn secondary" title="UIを小さく">−</button>
+              <span id="ui-scale-label" class="muted small" style="min-width:44px;text-align:center;">100%</span>
+              <button id="ui-plus" class="btn secondary" title="UIを大きく">＋</button>
+            </div>
+            <button id="btn-clear-placed" class="btn danger" title="配置だけ消す（在庫は残る）">配置クリア</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="edit-layout">
+        <aside id="stock-panel" class="panel stock">
+          <div class="panel-head">
+            <div class="row">
+              <strong>在庫</strong>
+              <span class="muted">(<span id="stock-count">0</span>)</span>
+              <input id="stock-search" class="stock-search-inline" placeholder="🔍 絞込…"
+                title="科目/教科/クラス/教員/教室で絞り込み（未配置をダブルクリック→提案）" />
+              <div class="spacer"></div>
+              <label class="chk small"><input id="show-placed" type="checkbox" />配置済みも</label>
+              <label class="chk small"><input id="group-stock" type="checkbox" checked />教科順</label>
+            </div>
+            <!-- 複数選択バー -->
+            <div class="row" style="gap:4px;margin-top:4px">
+              <button id="btn-stock-sel-all" class="btn secondary" style="padding:2px 7px;font-size:10px"
+                title="表示中の未配置コマをすべて選択 (Ctrl+A)">全選択</button>
+              <button id="btn-stock-sel-dept" class="btn secondary" style="padding:2px 7px;font-size:10px"
+                title="同じ教科のコマをすべて選択">同教科</button>
+              <button id="btn-stock-sel-cls" class="btn secondary" style="padding:2px 7px;font-size:10px"
+                title="同じクラスのコマをすべて選択">同クラス</button>
+            </div>
+            <div id="stock-multi-bar" class="stock-multi-bar" style="display:none">
+              <span id="stock-multi-count" class="small muted"></span>
+              <button id="btn-stock-multi-ai" class="btn primary" style="padding:3px 10px;font-size:11px">🤖
+                AI配置</button>
+              <button id="btn-stock-multi-clear" class="btn secondary" style="padding:3px 8px;font-size:11px">✕
+                解除</button>
+            </div>
+          </div>
+          <div id="stock-list" class="stock-list"></div>
+          <div class="stock-shortcut-hint no-print">
+            <span><kbd>↔</kbd> 未配置を移動</span>
+            <span><kbd>Space</kbd> 即配置</span>
+            <span><kbd>DblClick</kbd> 即配置</span>
+            <span><kbd>Del</kbd> 在庫へ</span>
+          </div>
+        </aside>
+
+        <div id="split-stock-top" class="splitter h no-print" title="ドラッグで高さ調整" style="display:none;"></div>
+
+        <div id="split-stock" class="splitter v no-print" title="ドラッグで幅調整"></div>
+
+        <section class="panel grid">
+          <div id="grid-multi-bar" class="grid-multi-bar" style="display:none">
+            <span id="grid-multi-count" class="small muted"></span>
+            <button id="btn-grid-multi-stock" class="btn secondary" style="padding:3px 10px;font-size:11px">📥 在庫へ</button>
+            <button id="btn-grid-multi-lock" class="btn secondary" style="padding:3px 10px;font-size:11px">🔒 ロック</button>
+            <button id="btn-grid-multi-copy" class="btn secondary" style="padding:3px 10px;font-size:11px">📋 コピー</button>
+            <button id="btn-grid-multi-del" class="btn danger" style="padding:3px 10px;font-size:11px">🗑 削除</button>
+            <button id="btn-grid-multi-clear" class="btn secondary" style="padding:3px 8px;font-size:11px">✕ 解除</button>
+          </div>
+          <div id="grid-wrapper" class="grid-wrapper">
+            <div id="grid" class="grid-root"></div>
+          </div>
+        </section>
+
+        <div id="split-prop" class="splitter v no-print" title="ドラッグで幅調整"></div>
+
+        <aside id="prop-panel" class="panel prop">
+          <div class="panel-head">
+            <div class="row">
+              <strong>プロパティ</strong>
+              <div class="spacer"></div>
+              <button id="btn-clear-selection" class="btn secondary small">選択解除</button>
+            </div>
+          </div>
+          <div id="prop-body" class="prop-body"></div>
+        </aside>
+      </div>
+
+      <footer class="status no-print">
+        <div id="status-left">Ready</div>
+        <div class="spacer"></div>
+        <div class="muted small">ヒント: クリック選択→セルクリックで移動 / 右クリックでメニュー / Delで在庫へ / Lでロック / Ctrl+Z/Y</div>
+      </footer>
+    </section>
+
+    <!-- print -->
+    <section class="view" id="view-print" style="display:none;">
+      <div class="toolbar no-print">
+        <select id="print-page-orient" class="sel mini">
+          <option value="landscape">A4 横</option>
+          <option value="portrait">A4 縦</option>
+        </select>
+        <select id="print-type" class="sel">
+          <option value="class">全クラス</option>
+          <option value="teacher">全教員</option>
+          <option value="room">全教室</option>
+          <option value="class-paged">クラス別（1頁1クラス）</option>
+          <option value="teacher-paged">教員別（1頁1教員）</option>
+          <option value="matrix-teacher">教員マトリクス</option>
+          <option value="matrix-class">クラスマトリクス</option>
+          <option value="matrix-room">教室マトリクス</option>
+        </select>
+        <button id="btn-print" class="btn primary">印刷 / PDF</button>
+        <button id="btn-pdf-export" class="btn secondary" title="print-areaをPDFとして直接保存（html2canvas + jsPDF）">📄
+          PDF保存</button>
+        <button id="btn-print-overview" class="btn secondary" title="全ページを縮小サムネイルで一覧表示（印刷前の確認用）">🔍 全体プレビュー</button>
+        <label class="chk"><input id="print-show-tea" type="checkbox" checked>教員</label>
+        <label class="chk"><input id="print-show-cls" type="checkbox" checked>クラス</label>
+        <label class="chk"><input id="print-show-room" type="checkbox">教室</label>
+        <label class="chk"><input id="print-show-span" type="checkbox" checked>2連</label>
+        <label class="chk"><input id="print-borders" type="checkbox" checked>罫線</label>
+        <span class="muted small">枠幅</span>
+        <input id="print-border-width" type="range" min="0" max="4" step="0.5" value="1" style="width:70px">
+        <span id="print-border-width-label" class="muted small">1px</span>
+        <span class="muted small">背景</span>
+        <select id="print-pattern" class="sel mini">
+          <option value="none">なし</option>
+          <option value="stripe">縞模様</option>
+          <option value="checker">チェス</option>
+        </select>
+        <span class="toolbar-sep" style="display:inline-block;width:1px;height:20px;background:#e2e8f0;margin:0 4px;vertical-align:middle"></span>
+        <span class="muted small">行高</span>
+        <button id="btn-print-cell-down" class="btn secondary" style="padding:2px 8px">-</button>
+        <span id="print-cell-label" class="muted small">M</span>
+        <button id="btn-print-cell-up" class="btn secondary" style="padding:2px 8px">+</button>
+        <input id="print-font-size-px" type="number" min="6" max="48" step="1" title="文字サイズ（px直接入力）" style="width:46px;padding:1px 4px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+        <span class="muted small" style="margin-left:-4px">px</span>
+        <span class="muted small">列幅</span>
+        <button id="btn-print-col-down" class="btn secondary" style="padding:2px 8px">-</button>
+        <span id="print-col-label" class="muted small">M</span>
+        <button id="btn-print-col-up" class="btn secondary" style="padding:2px 8px">+</button>
+        <button id="btn-fit-a4-portrait" class="btn secondary" title="A4縦1枚にぴったり収まるよう列幅・行高さ・文字を自動設定">📐 A4縦フィット</button>
+        <button id="btn-equalize-cols" class="btn secondary" title="全曜日列を同じ幅に揃える">⇔ 列幅揃え</button>
+        <button id="btn-equalize-rows" class="btn secondary" title="全時限行を同じ高さに揃える">⇕ 行高揃え</button>
+        <button id="btn-print-reset-size" class="btn secondary" title="列幅・行高さ・フォントサイズのドラッグ変更をリセット">↺ リセット</button>
+        <span class="muted small">タイトル</span>
+        <input id="print-title-font-px" type="number" min="6" max="60" step="1" title="クラス名・教員名のフォントサイズ（px）" style="width:46px;padding:1px 4px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+        <span class="muted small" style="margin-left:-4px">px</span>
+        <span class="muted small">ヘッダ</span>
+        <input id="print-header-font-px" type="number" min="6" max="36" step="1" title="曜日・時限数字のフォントサイズ（px）" style="width:46px;padding:1px 4px;border:1px solid #cbd5e1;border-radius:4px;text-align:right">
+        <span class="muted small" style="margin-left:-4px">px</span>
+        <span class="muted small">揃え</span>
+        <select id="print-align" class="sel mini">
+          <option value="left">左</option>
+          <option value="center" selected>中央</option>
+          <option value="right">右</option>
+        </select>
+        <span class="muted small">フォント</span>
+        <select id="print-font-family" class="sel mini">
+          <option value="system">標準</option>
+          <option value="gothic">ゴシック</option>
+          <option value="mincho">明朝</option>
+          <option value="rounded">丸ゴシック</option>
+          <option value="mono">等幅</option>
+        </select>
+        <span class="muted small">濃さ</span>
+        <input id="print-pattern-contrast" type="range" min="5" max="60" step="5" value="30" style="width:60px">
+        <span id="print-pattern-contrast-label" class="muted small">30%</span>
+        <span class="muted small">列数</span>
+        <select id="print-cols" class="sel mini">
+          <option value="1" selected>1列</option>
+          <option value="2">2列</option>
+          <option value="3">3列</option>
+        </select>
+        <span class="muted small">枠サイズ</span>
+        <select id="print-cell-size-mode" class="sel mini">
+          <option value="fixed" selected>固定</option>
+          <option value="flexible">フレキシブル</option>
+        </select>
+        <span class="toolbar-sep" style="display:inline-block;width:1px;height:20px;background:#e2e8f0;margin:0 4px;vertical-align:middle"></span>
+        <button id="btn-export-teacher-matrix" class="btn secondary">全教員CSV</button>
+        <button id="btn-export-class-matrix" class="btn secondary">全クラスCSV</button>
+        <button id="btn-export-teacher-xlsx" class="btn secondary" style="background:#217346;color:#fff;border:none">📊 教員別XLSX</button>
+        <button id="btn-export-class-xlsx" class="btn secondary" style="background:#217346;color:#fff;border:none">📊 クラス別XLSX</button>
+        <button id="btn-export-class-sheets-xlsx" class="btn secondary" style="background:#1d6f42;color:#fff;border:none">📊 クラス別シート</button>
+        <button id="btn-export-teacher-sheets-xlsx" class="btn secondary" style="background:#1d6f42;color:#fff;border:none">📊 教員別シート</button>
+      </div>
+
+      <div class="print-layout no-print">
+        <div class="row wrap gap">
+          <span class="muted small">1行目</span>
+          <select id="pl1-1" class="sel mini"></select>
+          <select id="pl1-2" class="sel mini"></select>
+          <select id="pl1-3" class="sel mini"></select>
+          <select id="pl1-4" class="sel mini"></select>
+          <span class="muted small">　2行目</span>
+          <select id="pl2-1" class="sel mini"></select>
+          <select id="pl2-2" class="sel mini"></select>
+          <select id="pl2-3" class="sel mini"></select>
+          <span class="muted small">（例: 科目フル→教員略 →改行→教室）</span>
+        </div>
+      </div>
+      <div id="print-area" class="print-area"></div </section>
+  </main>
+
+  <div id="ctx-menu" class="ctx-menu" style="display:none;"></div>
+
+  <div id="hover-tip" class="hover-tip" style="display:none;"></div>
+
+  <div id="float-layer" class="float-layer no-print"></div>
+
+  <!-- modal -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal-box">
+      <h3 id="modal-title">確認</h3>
+      <div id="modal-msg" class="modal-msg"></div>
+      <div class="row gap right">
+        <button id="modal-ok" class="btn primary">OK</button>
+        <button id="modal-cancel" class="btn secondary">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SheetJS for xlsx export -->
+  <script src="xlsx.min.js"></script>
+  <!-- Encoding.js for Shift-JIS output (イデアファイルエクスポート用) -->
+  <script src="encoding.min.js"></script>
+  <script src="script.js"></script>
+  <!-- PDF/Canvas libs lazy-loaded on demand by exportPDF() -->
+</body>
+
+</html>
