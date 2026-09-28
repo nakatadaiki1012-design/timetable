@@ -731,7 +731,8 @@ body {
   --cardpy: 1px;
   --cardpx: 2px;
   --sub: 10px;
-  --meta: 9px
+  --meta: 9px;
+  --table-minw: 820px
 }
 
 .grid-wrapper[data-dl="1"] {
@@ -741,7 +742,8 @@ body {
   --cardpy: 2px;
   --cardpx: 3px;
   --sub: 10px;
-  --meta: 9px
+  --meta: 9px;
+  --table-minw: 880px
 }
 
 .grid-wrapper[data-dl="2"] {
@@ -751,7 +753,8 @@ body {
   --cardpy: 3px;
   --cardpx: 5px;
   --sub: 11px;
-  --meta: 9px
+  --meta: 9px;
+  --table-minw: 940px
 }
 
 .grid-wrapper[data-dl="3"] {
@@ -761,7 +764,8 @@ body {
   --cardpy: 4px;
   --cardpx: 6px;
   --sub: 12px;
-  --meta: 10px
+  --meta: 10px;
+  --table-minw: 1000px
 }
 
 .grid-wrapper[data-dl="4"] {
@@ -770,8 +774,9 @@ body {
   --gap: 2px;
   --cardpy: 4px;
   --cardpx: 6px;
-  --sub: 12px;
-  --meta: 10px
+  --sub: 13px;
+  --meta: 11px;
+  --table-minw: 1160px
 }
 
 .grid-wrapper[data-dl="5"] {
@@ -780,8 +785,9 @@ body {
   --gap: 3px;
   --cardpy: 5px;
   --cardpx: 7px;
-  --sub: 12px;
-  --meta: 10px
+  --sub: 14px;
+  --meta: 11px;
+  --table-minw: 1320px
 }
 
 .grid-wrapper[data-dl="6"] {
@@ -790,8 +796,9 @@ body {
   --gap: 3px;
   --cardpy: 6px;
   --cardpx: 8px;
-  --sub: 13px;
-  --meta: 11px
+  --sub: 15px;
+  --meta: 12px;
+  --table-minw: 1480px
 }
 
 .timetable {
@@ -799,7 +806,9 @@ body {
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 12px;
-  min-width: 980px
+  /* 【B-1/B-6】密度(--table-minw)と文字サイズ(--tableAdj)でコマ幅が連動して広がる。
+     既定(dl3以下)は1280pxに収まり、大きくすると横スクロール（見出しは固定）になる。 */
+  min-width: calc(var(--table-minw, 960px) + var(--tableAdj, 0px))
 }
 
 .timetable th,
@@ -807,6 +816,15 @@ body {
   border: 1px solid #94a3b8;
   padding: 0;
   text-align: center
+}
+
+/* 【B-5】table-layout:fixed は先頭行(thead)のセル幅で列幅が決まるため、
+   1列目(時限/クラス/教員の見出し列)に十分な幅を与えて「1-1」等が潰れないようにする */
+.timetable thead th:first-child,
+.timetable tbody th {
+  width: 76px;
+  min-width: 76px;
+  max-width: 76px
 }
 
 .timetable thead th {
@@ -828,9 +846,11 @@ body {
   font-weight: 1000;
   cursor: grab;
   user-select: none;
-  white-space: normal;
-  word-break: break-all;
-  overflow-wrap: break-word;
+  /* 【B-5】「1-1」等のクラス名が「1-\n1」と折れないようにする。
+     長い教員名はあふれる場合のみ…で省略（中途半端な折返しをしない）。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.2;
   padding: 2px 4px;
   vertical-align: middle
@@ -1901,13 +1921,20 @@ body.prop-hide #split-prop {
 }
 
 .lesson .l1 .subj {
-  font-weight: 1000;
+  font-weight: 800;
   font-size: calc(var(--sub) + var(--subAdj));
-  white-space: nowrap;
+  /* 【B-2】狭いコマでも中途半端に切れないよう、最大2行で折り返し、あふれる場合のみ…で省略 */
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.1;
   flex: 1 1 auto;
-  min-width: 3.2ch;
+  min-width: 0;
   text-align: left
 }
 
@@ -2173,17 +2200,23 @@ body[data-stock-size="xl"] .stock-item .si-name {
   font-size: 24px
 }
 
-/* 2-span continuation card in grid */
+/* 2-span continuation card in grid（【B-4】2コマ目も科目名を表示） */
 .lesson.span-cont {
-  opacity: .72;
-  border-style: dashed;
-  border-width: 1px 1px 1px 3px
+  opacity: .9;
+  border-top-style: dashed
 }
 
 .lesson.span-cont .subj {
-  font-size: calc(var(--sub) + var(--subAdj) - 1px);
+  font-size: calc(var(--sub) + var(--subAdj));
   color: inherit;
-  opacity: .85
+  opacity: 1
+}
+
+.lesson .cont-mark {
+  flex: 0 0 auto;
+  font-size: calc(var(--meta) + var(--metaAdj));
+  opacity: .6;
+  margin-left: 2px
 }
 
 .lesson.span-cont .l2 {

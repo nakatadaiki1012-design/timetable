@@ -536,6 +536,17 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     return lum < 0.55;
   }
+  // 【B-3】コマ背景用の淡色（明度88%前後）を返す。文字は濃色にしコントラスト比4.5以上を確保する。
+  function paleColor(hex, mix = 0.16) {
+    try {
+      const m = (hex || '#888888').replace('#', '');
+      const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
+      const pr = Math.round(255 - (255 - r) * mix);
+      const pg = Math.round(255 - (255 - g) * mix);
+      const pb = Math.round(255 - (255 - b) * mix);
+      return `rgb(${pr},${pg},${pb})`;
+    } catch (e) { return '#f1f5f9'; }
+  }
 
   /* ── v45.2: colorMode='type' 用のコマ色取得（2色モード）
      単独で動かせる → 科目色（デフォルト）
@@ -2503,7 +2514,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const plc = state.placements[id];
     if (!plc) return false;
     const span = state.items[id]?.span || 1;
-    return (span === 2 && plc.day === day && period === plc.period + 1);
+    // 【C-6】3連以上(span>=3)も継続コマとして扱う（従来はspan===2のみ）
+    return (span >= 2 && plc.day === day && period > plc.period && period < plc.period + span);
   }
 
   function teacherDailyMax(tea) {
@@ -4910,6 +4922,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     wrap.style.setProperty('--subAdj', (fs * 1) + 'px');
     wrap.style.setProperty('--metaAdj', (fs * 1) + 'px');
     wrap.style.setProperty('--tdhAdj', (cs * 4) + 'px');
+    // 【B-1】文字を大きくしたらコマ幅(テーブル最小幅)も広げる（切れ防止・見出し固定でスクロール）
+    wrap.style.setProperty('--tableAdj', (fs * 90) + 'px');
     const fsl = $('#font-step-label'); if (fsl) fsl.textContent = `±${fs}`;
     const csl = $('#cell-step-label'); if (csl) csl.textContent = `±${cs}`;
 
@@ -5435,10 +5449,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       el.draggable = true;
       el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
       const contLabel = mode === 'teacher' ? (it.cls[0] || '') : (abbr || '');
-      // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
-      el.style.background = color;
-      el.style.color = isDark(color) ? 'rgba(255,255,255,.75)' : 'rgba(15,23,42,.6)';
-      el.innerHTML = `<div class="l1"><div class="subj">↓ ${escapeHtml(contLabel)}</div></div>`;
+      // 【B-3/B-4】2連の2コマ目も淡背景＋色帯にし、科目名を表示（従来は「↓」だけで薄かった）
+      el.style.background = paleColor(color);
+      el.style.color = '#0f172a';
+      el.style.borderLeft = '4px solid ' + color;
+      el.innerHTML = `<div class="l1"><div class="subj">${escapeHtml(contLabel)}</div><span class="cont-mark" title="前のコマからの続き">⤵</span></div>`;
       el.ondragstart = (ev) => {
         window._currentDragId = id;
         window._dragPending = true;
@@ -5496,8 +5511,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     el.dataset.id = id;
     el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
     // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
-    el.style.background = color;
-    el.style.color = isDark(color) ? '#fff' : '#0f172a';
+    // 【B-3】淡い背景＋濃い文字＋左端の色帯（科目色分けは色帯で維持、文字はコントラスト比4.5以上）
+    el.style.background = paleColor(color);
+    el.style.color = '#0f172a';
+    el.style.borderLeft = '4px solid ' + color;
 
     el.innerHTML = `
     <div class="l1">
@@ -8875,20 +8892,27 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const start = hasHeader ? 1 : 0;
     const idx = (name) => header.indexOf(name);
     const get = (arr, i) => (i >= 0 && i < arr.length) ? arr[i] : '';
+    // 【C-5】見出しがある列は、その見出し位置の値だけを使う（空欄でも別列の値を拾わない）。
+    // 見出しが無い(位置指定)ファイルのみ、既定の列位置(0〜8)を使う。
+    const col = (a, name, pos) => {
+      const i = idx(name);
+      if (i >= 0) return get(a, i);          // 見出しあり → その列のみ
+      return hasHeader ? '' : get(a, pos);   // 見出しはあるがこの列名が無い場合は空。無ければ位置で取得
+    };
     pushHistory('csvImport');
     for (let r = start; r < rows.length; r++) {
       const a = rows[r];
       const row = {
         _id: null,
-        cls: get(a, idx('クラス')) || get(a, 0),
-        subj: get(a, idx('科目')) || get(a, 1),
-        subjAbbr: get(a, idx('科目略')) || get(a, 2),
-        dept: get(a, idx('教科')) || get(a, 3),
-        tea: get(a, idx('教員')) || get(a, 4),
-        teaAbbr: get(a, idx('教員略')) || get(a, 5),
-        room: get(a, idx('教室')) || get(a, 6),
-        count: parseInt(get(a, idx('コマ数')) || get(a, 7) || '1', 10) || 1,
-        dbl: String(get(a, idx('2連')) || get(a, 8) || '').trim() === '1' || String(get(a, idx('2連')) || '').toLowerCase() === 'true'
+        cls: col(a, 'クラス', 0),
+        subj: col(a, '科目', 1),
+        subjAbbr: col(a, '科目略', 2),
+        dept: col(a, '教科', 3),
+        tea: col(a, '教員', 4),
+        teaAbbr: col(a, '教員略', 5),
+        room: col(a, '教室', 6),
+        count: parseInt(col(a, 'コマ数', 7) || '1', 10) || 1,
+        dbl: (() => { const v = String(col(a, '2連', 8) || '').trim().toLowerCase(); return v === '1' || v === 'true'; })()
       };
       ensureRowId(row);
       state.rawRows.push(row);
@@ -12815,7 +12839,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
   function isSpanFill(id,day,p){
     const plc=data.placements[id]; const it=data.items[id];
-    return plc && it && it.span===2 && plc.day===day && p===plc.period+1;
+    // 【C-6】3連以上も継続コマとして扱う
+    return plc && it && (it.span||1)>=2 && plc.day===day && p>plc.period && p<plc.period+(it.span||1);
   }
   let __idxCache = null;
 function invalidateIndex(){ __idxCache = null; }
