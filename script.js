@@ -238,8 +238,16 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   /* =======================
      Constants / Utils
   ======================= */
+  // 【A-3】土曜(6日制)・日曜対応。DAYS は参照を保ったまま中身を差し替える（148箇所の参照を壊さない）。
+  // 既定は月〜金。6日制ファイル読込時などに setActiveDayCount(6) で土曜を含む形に伸縮する。
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const DAYJP = { Mon: '月', Tue: '火', Wed: '水', Thu: '木', Fri: '金' };
+  const DAYJP = { Mon: '月', Tue: '火', Wed: '水', Thu: '木', Fri: '金', Sat: '土', Sun: '日' };
+  const ALL_DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function setActiveDayCount(n) {
+    n = Math.max(1, Math.min(7, parseInt(n, 10) || 5));
+    DAYS.length = 0;
+    for (let i = 0; i < n; i++) DAYS.push(ALL_DAY_KEYS[i]);
+  }
   /* v48: 仮配置モード（Sandboxモード） */
   let _sandboxMode = false;
   let _sandboxPlacements = null; // 仮配置中の placements バックアップ（元の状態）
@@ -1152,22 +1160,25 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // CSV フィールドパーサ（引用符対応）
     function parseLine(s) {
+      // 【A-3】標準的なCSV行パーサ。"" (引用符内の二重引用符=リテラルの")と
+      // 末尾の空フィールド(行末カンマ)に対応する。
       const fields = [];
-      let i = 0;
-      while (i < s.length) {
-        if (s[i] === '"') {
-          let end = s.indexOf('"', i + 1);
-          if (end === -1) end = s.length;
-          fields.push(s.slice(i + 1, end));
-          i = end + 1;
-          if (s[i] === ',') i++;
-        } else {
-          const comma = s.indexOf(',', i);
-          if (comma === -1) { fields.push(s.slice(i)); break; }
-          fields.push(s.slice(i, comma));
-          i = comma + 1;
+      let field = '', i = 0, inQ = false;
+      const n = s.length;
+      while (i < n) {
+        const c = s[i];
+        if (inQ) {
+          if (c === '"') {
+            if (s[i + 1] === '"') { field += '"'; i += 2; continue; } // "" → "
+            inQ = false; i++; continue;
+          }
+          field += c; i++; continue;
         }
+        if (c === '"') { inQ = true; i++; continue; }
+        if (c === ',') { fields.push(field); field = ''; i++; continue; }
+        field += c; i++;
       }
+      fields.push(field); // 末尾フィールド（行末カンマの空欄も含む）
       return fields;
     }
 
@@ -1332,7 +1343,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const f2 = parseLine(lines[idx + 1] || '');
         const id = parseInt(f1[0]);
         const name = f1[1] || '';
-        const abbr = f1[2] || name;
+        const abbr = f1[3] || f1[2] || name; // 【A-3】科目と同じ f1[3]||f1[2] にそろえる
         const dept = (f2[3] || '').replace(/科$/, '');
         const homeroom = (f2[4] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−ー－]/g, '-');
         // 可用性文字列から出勤不可コマを取得 ('90' = 非勤務)
@@ -1648,10 +1659,28 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const itemIds = jugyoItemIds[jid];
       if (!itemIds) continue;
       let instList = Object.values(inst);
-      // 2連コマは J-CLASS に連続2時限として現れる。開始時限だけ残して1配置に畳む
+      // 2連コマは J-CLASS に連続する時限として現れる。開始時限だけ残して1配置に畳む。
+      // 【A-3】従来は「前の時限があれば消す」だけだったため、1-2限と3-4限のように
+      // 2連が2つ続く場合に全体を1ブロックに潰していた。曜日ごとに連続時限をまとめ、
+      // span個ごとの先頭だけを残すことで、独立した複数の2連を正しく保持する。
       if (jugyoMeta[jid] && jugyoMeta[jid].span >= 2) {
-        const keySet = new Set(instList.map(r => r.day + '#' + r.period));
-        instList = instList.filter(r => !keySet.has(r.day + '#' + (r.period - 1)));
+        const span = jugyoMeta[jid].span;
+        const byDay = {};
+        for (const r of instList) (byDay[r.day] || (byDay[r.day] = [])).push(r);
+        const kept = [];
+        for (const day in byDay) {
+          const arr = byDay[day].sort((a, b) => a.period - b.period);
+          let runStart = null, prev = null;
+          for (const r of arr) {
+            if (prev !== null && r.period === prev + 1) {
+              if ((r.period - runStart) % span === 0) { kept.push(r); runStart = r.period; }
+            } else {
+              kept.push(r); runStart = r.period;
+            }
+            prev = r.period;
+          }
+        }
+        instList = kept;
       }
       instList.sort((a, b) =>
         DAY_KEYS.indexOf(a.day) - DAY_KEYS.indexOf(b.day) || a.period - b.period
@@ -1897,7 +1926,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const it = items[id]; if (!it) continue;
         const span = it.span || 1;
         for (const c of (it.cls || [])) {
-          if (!/^\d+-\d+$/.test(c)) continue; // 通常クラスのみ（校務分掌G等は除外）
+          // 【A-3】通常クラスのみ対象（校務分掌G等は除外）。「3-1」に加え「1年1組」「1-A」等にも対応。
+          // クラス名は学年数字で始まる。校務分掌グループ(学務G/生徒会G等)は漢字始まりなので除外される。
+          if (!/^\d/.test(c) || /[GＧ]$/.test(c)) continue;
           const rec = lastFilled[c] || (lastFilled[c] = {});
           rec[pl.day] = Math.max(rec[pl.day] || 0, pl.period + span - 1);
         }
@@ -1910,7 +1941,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
     }
 
-    return { schoolName, periodsByDay, subjectCfg, teacherCfg, roomCfg, items, rawRows, placements, placedCount, classPeriodOverride };
+    return { schoolName, numDays, periodsByDay, subjectCfg, teacherCfg, roomCfg, items, rawRows, placements, placedCount, classPeriodOverride };
   }
 
   async function importProjectFile(file) {
@@ -1975,8 +2006,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           // 固定として取込: 全配置をロック
           if (lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
           state.snapshots = [];
-          // 曜日ごとの時限数（可用性文字列から正確に取得）
-          if (parsed.periodsByDay) Object.assign(state.settings.periodsByDay, parsed.periodsByDay);
+          // 【A-3】学校名を反映
+          if (parsed.schoolName) state.settings.schoolName = parsed.schoolName;
+          // 【A-3】土曜(6日制)等に対応: 読込ファイルの曜日数だけ表示曜日を伸縮
+          if (parsed.numDays) setActiveDayCount(parsed.numDays);
+          // 【A-3】曜日ごとの時限数。ファイルに無い曜日は0(非表示)にする（Object.assignの上書き残りを防ぐ）
+          if (parsed.periodsByDay) {
+            for (const d in state.settings.periodsByDay) state.settings.periodsByDay[d] = 0;
+            Object.assign(state.settings.periodsByDay, parsed.periodsByDay);
+          }
           // 教室マスタ（classmatch に roomCfg があれば格納）
           if (parsed.roomCfg) state.roomCfg = parsed.roomCfg;
           // per-class 時限数（早帰り等で授業の無い余分なコマをグレー表示）
