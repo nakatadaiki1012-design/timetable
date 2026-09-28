@@ -1403,17 +1403,71 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
 
     // ── J-* 配置ブロック共通パーサ ──
-    // イデアは各エンティティ(クラス/教員/教室)ごとに固定グリッド
-    //   (numDays+1) 日ブロック × (numPeriods+1) 時限スロット
-    // を持ち、日index0・時限index0はパディング（実データは1始まり）。
-    // 従来は numDays×numPeriods を仮定してストリームがズレ、配置を取りこぼしていた。
-    // cb(entityIdx, jugyoId, dayKey, period) を各配置スロットで呼ぶ。
+    // イデアは各エンティティ(クラス/教員/教室)ごとに固定グリッド（日ブロック×時限スロット）を持つ。
+    // 日/時限のindex0はパディング（実データは1始まり）である場合が多い。
+    // 【A-2】従来は (numDays+1)×(numPeriods+1) を決め打ちしていたが、1つでもずれると
+    //   以降の配置が全てずれる。そこで「総マス数 ÷ (エンティティ数)」から1エンティティの
+    //   マス数を実測し、候補格子(曜日5〜8 × 時限6〜9, パディング有無)と照合して決める。
+    //   割り切れない/候補が無い場合は警告を出す。
+    const parseWarnings = _parseIdeaNativeIde._warnings = [];
+    const classCountHint = Object.keys(classes).length;
+    const teacherCountHint = Object.keys(teachers).length;
+    const roomCountHint = Object.keys(rooms).length;
+    const _geomCache = {};
+    function countJSlots(start, end) {
+      let idx = start + 1, total = 0;
+      while (idx < end) {
+        const first = (lines[idx] || '').trim().split(',')[0];
+        const slotCount = parseInt(first, 10);
+        if (isNaN(slotCount)) break;
+        if (slotCount === 0) idx += 3;
+        else { const ec = parseInt((lines[idx + 1] || '').split(',')[0], 10) || 0; idx += 2 + ec + 1; }
+        total++;
+      }
+      return total;
+    }
+    function solveJGeometry(sectionName, entityHint) {
+      if (_geomCache[sectionName]) return _geomCache[sectionName];
+      const res = { gridDays: numDays + 1, gridP: numPeriods + 1, padDay: true, padPeriod: true, ok: true, warn: null, total: 0, E: entityHint };
+      const start = sectionIdx[sectionName];
+      if (start == null) return (_geomCache[sectionName] = res);
+      const end = nextSectionLine(start);
+      const total = res.total = countJSlots(start, end);
+      const cands = [];
+      for (let gd = 5; gd <= 8; gd++) for (let gp = 6; gp <= 9; gp++) {
+        const per = gd * gp;
+        if (total === 0 || total % per !== 0) continue;
+        cands.push({ gridDays: gd, gridP: gp, E: total / per, padDay: gd > numDays, padPeriod: gp > numPeriods });
+      }
+      if (!cands.length) {
+        res.ok = false;
+        res.warn = sectionName + '：総マス数(' + total + ')が想定の格子に割り切れません。読込形式が想定と異なる可能性があります。';
+        return (_geomCache[sectionName] = res);
+      }
+      cands.sort((a, b) => {
+        const sc = (x) => Math.abs(x.E - entityHint) * 100 + Math.abs(x.gridDays - (numDays + 1)) * 10 + Math.abs(x.gridP - (numPeriods + 1));
+        return sc(a) - sc(b);
+      });
+      Object.assign(res, cands[0], { ok: true });
+      if (res.gridDays !== numDays + 1 || res.gridP !== numPeriods + 1) {
+        res.warn = sectionName + '：データから推定した格子 ' + res.gridDays + '×' + res.gridP +
+          ' がHEADの ' + (numDays + 1) + '×' + (numPeriods + 1) + ' と異なります（推定値を使用）。';
+      }
+      return (_geomCache[sectionName] = res);
+    }
     function walkJSection(sectionName, cb) {
       const start = sectionIdx[sectionName];
       if (start == null) return;
       const end = nextSectionLine(start);
-      const gridP = numPeriods + 1;              // 時限スロット数（padding込み）
-      const perEntity = (numDays + 1) * gridP;   // 1エンティティのスロット数
+      const hint = sectionName === 'J-CLASS' ? classCountHint
+        : sectionName === 'J-Teach' ? teacherCountHint
+          : sectionName === 'J-Room' ? roomCountHint : classCountHint;
+      const geom = solveJGeometry(sectionName, hint);
+      if (geom.warn && !parseWarnings.includes(geom.warn)) parseWarnings.push(geom.warn);
+      const gridP = geom.gridP;
+      const perEntity = geom.gridDays * geom.gridP;
+      const dayOffset = geom.padDay ? 1 : 0;
+      const perOffset = geom.padPeriod ? 1 : 0;
       let idx = start + 1, s = 0, ent = 0;
       while (idx < end) {
         const first = (lines[idx] || '').trim().split(',')[0];
@@ -1425,11 +1479,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           idx += 3;
         } else {
           const entryCount = parseInt((lines[idx + 1] || '').split(',')[0], 10) || 0;
-          if (dayIdx >= 1 && dayIdx <= numDays && perIdx >= 1 && perIdx <= numPeriods) {
+          const dayNum = dayIdx - dayOffset;   // 0始まりの曜日index
+          const perNum = perIdx - perOffset;   // 0始まりの時限index
+          if (dayNum >= 0 && dayNum < numDays && perNum >= 0 && perNum < numPeriods) {
             const seen = new Set();
             for (let e = 0; e < entryCount; e++) {
               const jugyoId = parseInt((lines[idx + 2 + e] || '').split(',')[0], 10) || 0;
-              if (jugyoId > 0 && !seen.has(jugyoId)) { seen.add(jugyoId); cb(ent, jugyoId, DAY_KEYS[dayIdx - 1], perIdx); }
+              if (jugyoId > 0 && !seen.has(jugyoId)) { seen.add(jugyoId); cb(ent, jugyoId, DAY_KEYS[dayNum], perNum + 1); }
             }
           }
           idx += 2 + entryCount + 1;
