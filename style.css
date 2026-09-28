@@ -1024,6 +1024,32 @@ body {
   font-size: 13px
 }
 
+/* 【C-3】未選択時はプロパティ欄を細く畳んで時間割の表示面積を最大化 */
+.panel.prop.collapsed {
+  width: 30px !important;
+  min-width: 30px !important;
+  flex: 0 0 30px !important;
+  overflow: hidden;
+  cursor: pointer
+}
+.panel.prop.collapsed .prop-body,
+.panel.prop.collapsed .panel-head .row>.spacer,
+.panel.prop.collapsed .panel-head .row>button {
+  display: none
+}
+.panel.prop.collapsed .panel-head {
+  padding: 6px 0
+}
+.panel.prop.collapsed .panel-head .row {
+  justify-content: center
+}
+.panel.prop.collapsed .panel-head strong {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #64748b
+}
+
 .prop-body {
   flex: 1;
   overflow: auto;

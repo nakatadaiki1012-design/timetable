@@ -6904,6 +6904,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
   function renderProp() {
     const box = $('#prop-body'); if (!box) return;
+    // 【C-3】何も選択していない時はプロパティ欄を細く畳み、時間割の表示面積を最大化する
+    const panel = $('#prop-panel');
+    if (panel) panel.classList.toggle('collapsed', !!state.ui.propOn && !state.ui.selectedId);
     if (!state.ui.propOn) { box.innerHTML = ''; return; }
     const id = state.ui.selectedId;
     if (!id) {
