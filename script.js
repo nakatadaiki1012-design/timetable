@@ -922,10 +922,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const timeStr = now2.toTimeString().slice(0, 8);
 
     // 曜日・時限設定
-    const DAY_JA = { Mon: '月曜日', Tue: '火曜日', Wed: '水曜日', Thu: '木曜日', Fri: '金曜日' };
+    const DAY_JA = { Mon: '月曜日', Tue: '火曜日', Wed: '水曜日', Thu: '木曜日', Fri: '金曜日', Sat: '土曜日', Sun: '日曜日' };
     const activeDays = DAYS.filter(d => (state.settings.periodsByDay[d] || 0) > 0);
     const numDays = activeDays.length || 5;
     const numPeriods = Math.max(...activeDays.map(d => state.settings.periodsByDay[d] || 6), 6);
+    // 【A-5】曜日ごとの実時限数を可用性ブロックに反映（readerは '01' ペア数=時限数と解釈）
+    const perDayPeriods = activeDays.map(d => state.settings.periodsByDay[d] || numPeriods);
+    const availBlock = (pd) => '00' + '01'.repeat(Math.max(0, pd)); // '00'ヘッダ + pd個の'01'
 
     // 可用性ビット列（全コマ利用可能）
     // フォーマット: 各日 numPeriods+1 ビット（先頭0 + 各コマ1）を16ビット幅で表現
@@ -957,7 +960,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     R(`${numDays},${PAD14(dayFields, 14)}`);
     const periodFields = ['１','２','３','４','５','６','７','８'].slice(0, numPeriods).map(n => `"${n}"`);
     R(`${numPeriods},${PAD14(periodFields, 15)}`);
-    R(`"${Array(numDays).fill(AVAIL_DAY).join('-')}-CJ0001010101010101010000000000000000"`);
+    R(`"${perDayPeriods.map(availBlock).join('-')}-CJ0001010101010101010000000000000000"`);
 
     // ── OPTION ──
     R('"OPTION:",0');
@@ -967,130 +970,159 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     R('18,0,1,4,4,1,0');
     R(`-5,1,0,"${'0'.repeat(16)}-${'0'.repeat(16)}-${'0'.repeat(16)}-${'0'.repeat(16)}-${'0'.repeat(16)}-CJ${'0'.repeat(34)}","10","0"`);
 
-    // ── CLASS ──
-    // classmatch のクラス一覧を収集
-    const classSet = new Set();
+    // 【A-5】クラス/教室のマスタをitemから収集し、ID対応表を作る
+    const classSet = new Set(), roomSet = new Set();
     for (const it of Object.values(state.items)) {
-      (it.cls || []).forEach(c => classSet.add(c));
+      (it.cls || []).forEach(c => c && classSet.add(c));
+      (it.rooms || []).forEach(r => r && roomSet.add(r));
     }
     const classList = Array.from(classSet).sort((a, b) => a.localeCompare(b, 'ja'));
+    const classIdOf = new Map(classList.map((c, i) => [c, i + 1]));
+    const dayNumOf = (d) => activeDays.indexOf(d) + 1; // activeDays順の1始まり曜日番号
+    const availFull = Array(numDays).fill(AVAIL_DAY).join('-'); // 全コマ利用可
+
+    // ── CLASS ──
     R(`"CLASS:",${classList.length}`);
-    // エントリ0（空）
     R('0,"","","","　　高　　　"');
     R('0,1,"","",""');
     R(`0,"${avail5}-CJ${'0'.repeat(34)}"`);
-    classList.forEach((cls, i) => {
-      const id = i + 1;
-      const short = cls.replace(/-/, '−');  // half→full width hyphen
-      const grade = cls.match(/^(\d)/) ? cls[0] + '年' : '';
-      R(`${id},"${short}","${cls}","${id}","　　高　　　"`);
-      R(`0,1,"${grade}","",""`);
-      R(`${id},"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
-    });
-
-    // ── ROOM ──
-    R(`"ROOM:",${classList.length}`);
-    R('0,"","","","　　高　　　"');
-    R('0,1,"","",""');
-    R(`0,"${'0'.repeat(16)}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
     classList.forEach((cls, i) => {
       const id = i + 1;
       const short = cls.replace(/-/, '−');
       const grade = cls.match(/^(\d)/) ? cls[0] + '年' : '';
       R(`${id},"${short}","${cls}","${id}","　　高　　　"`);
       R(`0,1,"${grade}","",""`);
-      R(`${id},"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+      R(`${id},"${availFull}-CJ${'0'.repeat(34)}"`);
     });
 
-    // ── LESSON ──
+    // ── ROOM (実際の教室) ──
+    const roomList = Array.from(roomSet).sort((a, b) => a.localeCompare(b, 'ja'));
+    const roomIdOf = new Map(roomList.map((r, i) => [r, i + 1]));
+    R(`"ROOM:",${roomList.length}`);
+    R('0,"","","","　　高　　　"');
+    R('0,1,"","",""');
+    R(`0,"${'0'.repeat(16)}-${availFull}-CJ${'0'.repeat(34)}"`);
+    roomList.forEach((rm, i) => {
+      const id = i + 1;
+      R(`${id},"${rm}","${rm}","${id}","　　高　　　"`);
+      R('0,1,"","",""');
+      R(`${id},"${availFull}-CJ${'0'.repeat(34)}"`);
+    });
+
+    // ── LESSON (科目: 正式名称を name に、略称を f1[3] に置く) ──
     const subjEntries = Object.entries(state.subjectCfg).filter(([, v]) => v && v.abbr);
+    const lessonIdOf = new Map(subjEntries.map(([k], i) => [k, i + 1]));
     R(`"LESSON:",${subjEntries.length}`);
     R('0,"","","","　　高　　　"');
     R('0,0,"","",""');
-    R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
     subjEntries.forEach(([key, v], i) => {
       const id = i + 1;
-      const name = v.abbr || key;
+      const fullName = key;        // 正式名称（キー）
+      const abbr = v.abbr || key;  // 略称
       const dept = v.dept ? v.dept + '科' : '';
-      R(`${id},"${name}","${name}","${name}","　　高　　　"`);
+      R(`${id},"${fullName}","${fullName}","${abbr}","　　高　　　"`);
       R(`0,1,"","${dept}",""`);
-      R(`${id},"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+      R(`${id},"${availFull}-CJ${'0'.repeat(34)}"`);
     });
 
     // ── TEACH ──
     const teachEntries = Object.entries(state.teacherCfg).filter(([n]) => n);
+    const teachIdOf = new Map(teachEntries.map(([n], i) => [n, i + 1]));
     R(`"TEACH:",${teachEntries.length}`);
     R('0,"","","","　　高　　　"');
     R('0,1,"","","","","","00-1"');
-    R(`0,0,0,0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,0,0,0,"${availFull}-CJ${'0'.repeat(34)}"`);
     teachEntries.forEach(([name, v], i) => {
       const id = i + 1;
       const abbr = v.abbr || name;
       const dept = v.dept ? v.dept + '科' : '';
       R(`${id},"${name}","${abbr}","${abbr}","　　高　　　"`);
       R(`0,1,"","${dept}","","","","00-1"`);
-      R(`0,0,0,0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+      R(`0,0,0,0,"${availFull}-CJ${'0'.repeat(34)}"`);
     });
 
     // ── SJYUGYO (空) ──
     R('"SJYUGYO:",0');
     R('0,"","",""');
-    R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
     R('0');
     R('0,0,0,0,"                                 ","同時展開            同時展開            同時展開            "');
     R('0');
 
-    // ── JUGYO ──
-    // 教科→IDマップ
-    const subjIdMap = {};
-    subjEntries.forEach(([key], i) => { subjIdMap[key] = i + 1; });
-    // アイテムをJUGYO化（1アイテム=1コマ → 同一クラス+教科の繰り返し）
-    // まず (class, subjKey) でグループ化してcount計算
-    const jugyoMap = {};  // cls|subjKey -> {classId, lessonId, name, count}
-    classList.forEach((cls, ci) => {
-      const cid = ci + 1;
-      for (const it of Object.values(state.items)) {
-        if (!(it.cls || []).includes(cls)) continue;
-        const key = `${cls}|${it.subjKey || it.subj}`;
-        if (!jugyoMap[key]) {
-          jugyoMap[key] = { classId: cid, lessonId: subjIdMap[it.subjKey || it.subj] || 0, name: it.subj, count: 0, cls };
-        }
-        jugyoMap[key].count++;
-      }
-    });
-    const jugyoList = Object.values(jugyoMap);
-    R(`"JUGYO:",${jugyoList.length}`);
+    // ── JUGYO (item署名でグループ化し、2連(span)・配置を保持) ──
+    // 署名: クラス集合 | 科目 | 教員集合 | 教室集合 | span
+    const jugyoGroups = [], jugyoSig = new Map();
+    for (const it of Object.values(state.items)) {
+      const span = it.span || 1;
+      const sig = (it.cls || []).slice().sort().join('+') + '|' + (it.subjKey || it.subj) + '|' +
+        (it.teas || []).slice().sort().join('+') + '|' + (it.rooms || []).slice().sort().join('+') + '|' + span;
+      let g = jugyoSig.get(sig);
+      if (!g) { g = { cls: it.cls || [], subj: it.subj, subjKey: it.subjKey || it.subj, teas: it.teas || [], rooms: it.rooms || [], span, sessions: [] }; jugyoSig.set(sig, g); jugyoGroups.push(g); }
+      const pl = state.placements[it.id];
+      if (pl && pl.day) g.sessions.push({ day: pl.day, period: pl.period });
+    }
+    // (エンティティID → セル配置[]) を作りながらJUGYOを出力
+    const jClassCells = {}, jTeachCells = {}, jRoomCells = {};
+    R(`"JUGYO:",${jugyoGroups.length}`);
     R('0,"","",""');
-    R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
     R('0,0,0,0,"                                 "');
     R('0');
-    jugyoList.forEach((j, i) => {
-      const id = i + 1;
-      const clsIdx = classList.indexOf(j.cls);
-      R(`${id},"${j.name}","${j.name}","${j.name}"`);
-      R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
-      R(`${clsIdx + 1},${j.lessonId || 0},${clsIdx + 1},0,"${'○'.repeat(Math.min(j.count, 8))}${'　'.repeat(Math.max(0, 8 - j.count))}                       "`);
-      R(String(j.count));
-      for (let p = 1; p <= j.count; p++) {
-        R(`0,0,10,${p},${p}`);
+    jugyoGroups.forEach((g, gi) => {
+      const jid = gi + 1;
+      const cId = classIdOf.get(g.cls[0]) || 0;
+      const lId = lessonIdOf.get(g.subjKey) || 0;
+      const rId = roomIdOf.get(g.rooms[0]) || 0;
+      const perLines = [];
+      for (const s of g.sessions) {
+        const dn = dayNumOf(s.day);
+        if (dn < 1) continue;
+        for (let dp = 0; dp < g.span; dp++) {
+          const per = s.period + dp;
+          if (per > numPeriods) continue;
+          perLines.push(`${dn},${per},${rId},1,${dp + 1}`); // st=1,en=dp+1 で連続数を表現
+          for (const c of g.cls) { const ci = classIdOf.get(c); if (ci) (jClassCells[ci] || (jClassCells[ci] = [])).push({ day: s.day, period: per, jid }); }
+          for (const t of g.teas) { const ti = teachIdOf.get(t); if (ti) (jTeachCells[ti] || (jTeachCells[ti] = [])).push({ day: s.day, period: per, jid }); }
+          for (const rm of g.rooms) { const ki = roomIdOf.get(rm); if (ki) (jRoomCells[ki] || (jRoomCells[ki] = [])).push({ day: s.day, period: per, jid }); }
+        }
       }
+      const name = g.subj;
+      R(`${jid},"${name}","${name}","${name}"`);
+      R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
+      R(`${cId},${lId},${cId},0,"${'○'.repeat(Math.min(g.sessions.length, 8))}${'　'.repeat(Math.max(0, 8 - g.sessions.length))}                       "`);
+      R(String(perLines.length));
+      perLines.forEach(pl => R(pl));
     });
 
-    // ── J-CLASS / J-Room / J-Lesson / J-Teach (全ゼロ) ──
-    const zeroEntry = () => { R('0'); R('0,0,0,0'); R('0,0,0,0,0,0'); };
-    const slots = numDays * numPeriods;
-
-    R(`"J-CLASS:",${classList.length}`);
-    for (let c = 0; c <= classList.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
-
-    R(`"J-Room:",${classList.length}`);
-    for (let c = 0; c <= classList.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
-
-    R(`"J-Lesson:",${subjEntries.length}`);
-    for (let c = 0; c <= subjEntries.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
-
-    R(`"J-Teach:",${teachEntries.length}`);
-    for (let c = 0; c <= teachEntries.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
+    // ── J-CLASS / J-Teach / J-Room: パディング格子 (numDays+1)×(numPeriods+1) に実配置を書く ──
+    const gridDays = numDays + 1, gridP = numPeriods + 1;
+    const emitJSection = (label, entityCount, cellsByEntity) => {
+      R(`"${label}:",${entityCount}`);
+      for (let e = 0; e <= entityCount; e++) {
+        const cellMap = {};
+        for (const rec of (cellsByEntity[e] || [])) {
+          const dn = dayNumOf(rec.day);
+          if (dn < 1 || rec.period < 1 || rec.period > numPeriods) continue;
+          (cellMap[dn + '#' + rec.period] || (cellMap[dn + '#' + rec.period] = [])).push(rec.jid);
+        }
+        for (let dayIdx = 0; dayIdx < gridDays; dayIdx++) {
+          for (let perIdx = 0; perIdx < gridP; perIdx++) {
+            const jids = (dayIdx >= 1 && perIdx >= 1) ? (cellMap[dayIdx + '#' + perIdx] || []) : [];
+            if (!jids.length) { R('0'); R('0,0,0,0'); R('0,0,0,0,0,0'); }
+            else {
+              R(String(jids.length));
+              R(String(jids.length));
+              jids.forEach(jid => R(`${jid},0,0,0,0,0`));
+              R('0,0,0,0');
+            }
+          }
+        }
+      }
+    };
+    emitJSection('J-CLASS', classList.length, jClassCells);
+    emitJSection('J-Teach', teachEntries.length, jTeachCells);
+    emitJSection('J-Room', roomList.length, jRoomCells);
 
     // ── Shift-JIS エンコード & ダウンロード ──
     const content = lines.join('\r\n');
