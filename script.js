@@ -1941,7 +1941,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
     }
 
-    return { schoolName, numDays, periodsByDay, subjectCfg, teacherCfg, roomCfg, items, rawRows, placements, placedCount, classPeriodOverride };
+    // 【A-4】読込結果の自己検証用の診断情報
+    const KNOWN_SECTIONS = ['HEAD', 'CLASS', 'LESSON', 'TEACH', 'ROOM', 'JUGYO', 'J-CLASS', 'J-Teach', 'J-Room', 'SJYUGYO'];
+    const jGeom = _geomCache['J-CLASS'] || null;
+    const diag = {
+      classNames: [...new Set(Object.values(items).flatMap(it => it.cls || []))].sort((a, b) => a.localeCompare(b, 'ja')),
+      slotsPerClass: jGeom ? jGeom.gridDays * jGeom.gridP : null,
+      jGeom,
+      sectionsFound: Object.keys(sectionIdx),
+      sectionsSkipped: Object.keys(sectionIdx).filter(s => !KNOWN_SECTIONS.includes(s)),
+      warnings: parseWarnings.slice(),
+      totalItems: Object.keys(items).length,
+    };
+
+    return { schoolName, numDays, periodsByDay, subjectCfg, teacherCfg, roomCfg, items, rawRows, placements, placedCount, classPeriodOverride, diag };
   }
 
   async function importProjectFile(file) {
@@ -1989,13 +2002,54 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
            </label>`
         : '';
       let lockAll = false;
+      // 【A-4】読込結果の自己検証: 統計と例示ミニ時間割
+      const _diag = parsed.diag || {};
+      const _classNames = _diag.classNames || [];
+      const _slots = _diag.slotsPerClass;
+      const _jg = _diag.jGeom;
+      const _skipped = _diag.sectionsSkipped || [];
+      const _warns = _diag.warnings || [];
+      const _unplaced = Math.max(0, (_diag.totalItems || clsCount) - placedCount);
+      const _sampleClass = _classNames.find(c => /^\d/.test(c)) || _classNames[0] || '';
+      const buildMini = (cls) => {
+        if (!cls) return '';
+        const days = Object.keys(parsed.periodsByDay).filter(d => parsed.periodsByDay[d] > 0);
+        const maxP = Math.max(1, ...days.map(d => parsed.periodsByDay[d]));
+        const cellMap = {};
+        for (const [id, it] of Object.entries(parsed.items)) {
+          if (!(it.cls || []).includes(cls)) continue;
+          const pl = parsed.placements[id]; if (!pl || !pl.day) continue;
+          const ab = (parsed.subjectCfg[it.subj] && parsed.subjectCfg[it.subj].abbr) || it.subj;
+          for (let dp = 0; dp < (it.span || 1); dp++) cellMap[pl.day + '#' + (pl.period + dp)] = dp === 0 ? ab : '〃';
+        }
+        const th = 'border:1px solid #cbd5e1;padding:2px 6px;background:#f1f5f9';
+        const td = 'border:1px solid #cbd5e1;padding:2px 6px;text-align:center;min-width:38px';
+        let h = '<table style="border-collapse:collapse;font-size:11px;margin-top:4px"><tr><th style="' + th + '"></th>';
+        for (const d of days) h += '<th style="' + th + '">' + (DAYJP[d] || d) + '</th>';
+        h += '</tr>';
+        for (let p = 1; p <= maxP; p++) {
+          h += '<tr><th style="' + th + '">' + p + '</th>';
+          for (const d of days) h += '<td style="' + td + '">' + escapeHtml(cellMap[d + '#' + p] || '') + '</td>';
+          h += '</tr>';
+        }
+        return h + '</table>';
+      };
+      const statsHtml =
+        `<div style="margin-top:10px;padding:8px 10px;background:rgba(15,23,42,.04);border-radius:6px;line-height:1.7;font-size:13px">` +
+        `<div style="font-weight:700;margin-bottom:2px">読込内容の確認</div>` +
+        `<div>クラス数: ${_classNames.length}　1クラスあたりのマス数: ${_slots || '不明'}${_jg ? `（${_jg.gridDays}日×${_jg.gridP}時限）` : ''}</div>` +
+        `<div>配置できたコマ: <strong>${placedCount}</strong>　配置できなかったコマ: <strong>${_unplaced}</strong></div>` +
+        (_skipped.length ? `<div>読み飛ばしたセクション: ${escapeHtml(_skipped.join(', '))}</div>` : `<div>読み飛ばしたセクション: なし</div>`) +
+        (_warns.length ? `<div style="color:#b45309;margin-top:4px">⚠ ${_warns.map(escapeHtml).join('<br>⚠ ')}</div>` : '') +
+        `</div>` +
+        (_sampleClass ? `<div style="margin-top:8px;font-size:13px"><div class="muted small">例: クラス <strong>${escapeHtml(_sampleClass)}</strong> の時間割（イデアの画面と見比べてください）</div>${buildMini(_sampleClass)}</div>` : '');
       showModalHTML(
         'イデアファイル読込',
         `<div style="white-space:pre-wrap;line-height:1.6">` +
         escapeHtml(`イデアのAI時間割ファイル「${file.name}」を読み込みます。\n\n` +
           `  教員: ${teaCount}名　教科: ${subCount}科目　授業コマ: ${clsCount}コマ\n` +
           `${teaNote}\n${placeNote}\n\n${qualityNote}\n\n現在の作業内容はすべて上書きされます。`) +
-        `</div>` + lockOpt,
+        `</div>` + statsHtml + lockOpt,
         () => {
           pushHistory('ideaImport');
           state.rawRows = parsed.rawRows;
