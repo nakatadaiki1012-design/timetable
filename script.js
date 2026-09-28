@@ -1774,6 +1774,61 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
     }
 
+    // ── rawRows を最終itemから再構築し、item ID を reflect と一致させる ──
+    // 「データ登録 → 保存して作成画面へ」(reflectRawToItems)は rawRows から item を
+    // ${_id}__${k} 形式のIDで作り直す。読込時のIDと形式が違うと配置が対応付かず全消えするため、
+    // ここで最終itemを (科目/クラス/教員/教室/連続/同時展開) の署名でグループ化して行を作り、
+    // 各itemのIDを ${_id}__${k} に振り直しておく（合同授業や時限別担当は署名が異なるので自然に別行になる）。
+    {
+      const sigOf = (it) => JSON.stringify([
+        it.subj || '', (it.cls || []).slice().sort(), (it.teas || []).slice().sort(),
+        (it.rooms || []).slice().sort(), it.span || 1, !!it.simul, it.realSubj || ''
+      ]);
+      const groups = new Map();
+      for (const id of Object.keys(items)) {
+        const it = items[id]; if (!it) continue;
+        const s = sigOf(it);
+        let g = groups.get(s); if (!g) { g = { rep: it, ids: [] }; groups.set(s, g); }
+        g.ids.push(id);
+      }
+      const newItems = {}, newPlacements = {};
+      rawRows.length = 0;
+      let gi = 0;
+      for (const g of groups.values()) {
+        const rid = 'ide_' + (gi++);
+        const rep = g.rep;
+        const span = rep.span || 1;
+        let k = 0;
+        for (const oldId of g.ids) {
+          k++;
+          const nid = rid + '__' + k;
+          newItems[nid] = Object.assign({}, items[oldId], { id: nid, srcId: rid, countIdx: k });
+          if (placements[oldId]) newPlacements[nid] = placements[oldId];
+        }
+        const scfg = subjectCfg[rep.subj] || {};
+        rawRows.push({
+          _id: rid,
+          cls: (rep.cls || []).join(','),
+          subj: rep.subj,
+          subjAbbr: scfg.abbr || rep.subj,
+          dept: scfg.dept || '',
+          tea: (rep.teas || []).join(','),
+          teaAbbr: (rep.teas || []).map(n => teacherAbbrByName[n] || n).join(','),
+          room: (rep.rooms || []).join(','),
+          count: g.ids.length,
+          span,
+          dbl: span >= 2,
+          parallel: false,
+          simul: !!rep.simul,
+          realSubj: rep.realSubj || '',
+        });
+      }
+      for (const key of Object.keys(items)) delete items[key];
+      Object.assign(items, newItems);
+      for (const key of Object.keys(placements)) delete placements[key];
+      Object.assign(placements, newPlacements);
+    }
+
     // ── per-class 時限数（早帰り等）──
     // 完成時間割の実配置末尾から各クラス・各曜日の最終時限を求め、全体設定より短い場合のみ
     // classPeriodOverride に記録する。これにより授業の無い余分なコマがグレー表示になる
@@ -2205,7 +2260,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const teas = splitList(r.tea);
       const teaKey = teas.join(',') || ''; // multi teacher group
       const rooms = splitList(r.room);
-      const span = r.dbl ? 2 : 1;
+      // span は 3連以上も保持（r.span 優先、無ければ dbl から）
+      const span = Math.max(1, parseInt(r.span, 10) || (r.dbl ? 2 : 1) || 1);
       const parallel = !!r.parallel;
       const count = Math.max(1, parseInt(r.count || 1, 10) || 1);
       for (let k = 1; k <= count; k++) {
@@ -2220,6 +2276,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           locked: !!(placementsOld[id] && placementsOld[id].locked),
           countIdx: k
         };
+        // 読込由来の同時展開/相乗り表示情報を保持
+        if (r.simul) items[id].simul = true;
+        if (r.realSubj) items[id].realSubj = r.realSubj;
         if (placementsOld[id] && placementsOld[id].day) {
           newPlacements[id] = placementsOld[id];
         } else {
