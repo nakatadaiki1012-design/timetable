@@ -2077,10 +2077,14 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         }
         return h + '</table>';
       };
+      // 授業の実寸法（曜日数・最大時限）。マス数は読取格子(パディング込み)なので別途明記する。
+      const _numDays = parsed.numDays || Object.values(parsed.periodsByDay || {}).filter(v => v > 0).length;
+      const _maxPer = Math.max(0, ...Object.values(parsed.periodsByDay || {}).map(v => v || 0));
       const statsHtml =
         `<div style="margin-top:10px;padding:8px 10px;background:rgba(15,23,42,.04);border-radius:6px;line-height:1.7;font-size:13px">` +
         `<div style="font-weight:700;margin-bottom:2px">読込内容の確認</div>` +
-        `<div>クラス数: ${_classNames.length}　1クラスあたりのマス数: ${_slots || '不明'}${_jg ? `（${_jg.gridDays}日×${_jg.gridP}時限）` : ''}</div>` +
+        `<div>クラス数: ${_classNames.length}　授業曜日: ${_numDays}日　最大時限: ${_maxPer}限</div>` +
+        `<div>1クラスの読取マス数: ${_slots || '不明'}${_jg ? `（内部格子 ${_jg.gridDays}×${_jg.gridP}＝余白1列/1行込み）` : ''}</div>` +
         `<div>配置できたコマ: <strong>${placedCount}</strong>　配置できなかったコマ: <strong>${_unplaced}</strong></div>` +
         (_skipped.length ? `<div>読み飛ばしたセクション: ${escapeHtml(_skipped.join(', '))}</div>` : `<div>読み飛ばしたセクション: なし</div>`) +
         (_warns.length ? `<div style="color:#b45309;margin-top:4px">⚠ ${_warns.map(escapeHtml).join('<br>⚠ ')}</div>` : '') +
