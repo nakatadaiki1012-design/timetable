@@ -7144,6 +7144,35 @@ td.slot-ng {
   justify-content: flex-start;
 }
 
+/* 【C-1】ツールバーの「⚙ その他」詳細パネル（明るい・広め・グループ縦積み） */
+.toolbar-more { position: relative; }
+.toolbar-more-panel {
+  left: 0;
+  right: auto;
+  min-width: 560px;
+  max-width: 94vw;
+  max-height: 74vh;
+  overflow: auto;
+  background: #ffffff;
+  color: #0f172a;
+  gap: 6px;
+}
+.toolbar-more-panel .group {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+.toolbar-more-panel .group:last-child { border-bottom: none; }
+.toolbar-more-panel .label {
+  color: #475569;
+  min-width: 74px;
+  font-weight: 700;
+}
+
 /* ── 印刷 全体プレビュー（全ページ縮小一覧） ── */
 .print-overview-overlay {
   position: fixed;

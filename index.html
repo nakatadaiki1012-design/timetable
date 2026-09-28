@@ -472,6 +472,7 @@
     <!-- edit -->
     <section class="view" id="view-edit" style="display:none;">
       <div class="toolbar no-print">
+        <!-- 【C-1】よく使う操作を主要1段に残し、それ以外は「⚙ その他」に格納 -->
         <div class="row gap wrap">
           <div class="group">
             <span class="label">表示</span>
@@ -488,32 +489,6 @@
           </div>
 
           <div class="group">
-            <span class="label">ドロップ</span>
-            <label class="chk"><input type="radio" name="drop" value="safe" checked /> 警告</label>
-            <label class="chk"><input type="radio" name="drop" value="swap" /> 強制入替</label>
-            <label class="chk" title="衝突確認なしで即配置（移動先コマは在庫へ）"><input type="radio" name="drop" value="force" />
-              強制上書</label>
-          </div>
-
-          <div class="group">
-            <span class="label">表示</span>
-            <button id="btn-fit" class="btn secondary" title="1画面に収める（在庫=上/薄型・プロパティOFF・密度自動）">Fit</button>
-            <button id="btn-scroll" class="btn secondary" title="読みやすさ優先（在庫=左・プロパティON・密度中）">Scroll</button>
-          </div>
-
-          <div class="group">
-            <span class="label">密度</span>
-            <button id="btn-density-auto" class="btn secondary">自動</button>
-            <button id="btn-density-tight" class="btn secondary">小</button>
-            <button id="btn-density-mid" class="btn secondary">中</button>
-            <button id="btn-density-wide" class="btn secondary">大</button>
-            <span class="muted small">微調整</span>
-            <input id="density-fine" type="range" min="-2" max="2" step="1" value="0" />
-            <span id="density-fine-label" class="muted small">±0</span>
-          </div>
-
-
-          <div class="group">
             <span class="label">文字</span>
             <button id="btn-font-down" class="btn secondary" title="文字を小さく">A-</button>
             <button id="btn-font-reset" class="btn secondary" title="標準に戻す">A</button>
@@ -521,91 +496,17 @@
             <span id="font-step-label" class="muted small">±0</span>
           </div>
 
-          <div class="group">
-            <span class="label">コマ高</span>
-            <button id="btn-cell-down" class="btn secondary" title="コマを低く">-</button>
-            <button id="btn-cell-reset" class="btn secondary" title="標準に戻す">0</button>
-            <button id="btn-cell-up" class="btn secondary" title="コマを高く">+</button>
-            <span id="cell-step-label" class="muted small">±0</span>
-          </div>
-
-
-          <div class="group">
-            <span class="label">在庫/プロパティ</span>
-            <button id="btn-stock-left" class="btn secondary">在庫:左</button>
-            <button id="btn-stock-top" class="btn secondary">在庫:上</button>
-            <button id="btn-stock-compact" class="btn secondary" title="上表示時の薄型モード">薄型</button>
-            <button id="btn-prop-toggle" class="btn secondary">プロパティON/OFF</button>
-          </div>
-
+          <!-- 【C-2】検索を1つのグループに（行検索＝表の行 / コマ検索＝グリッド強調） -->
           <div class="group">
             <span class="label">検索</span>
-            <input id="row-filter" class="mini-input" placeholder="行検索（例: 1-7 / 葛山 / オーラル）" />
-          </div>
-
-          <div class="group">
-            <span class="label">教員並替</span>
-            <button id="btn-tea-sort-name-edit" class="btn secondary">名前</button>
-            <button id="btn-tea-sort-subj" class="btn secondary">教科</button>
-            <button id="btn-tea-sort-manual" class="btn secondary" title="ドラッグで並べ替え">手動</button>
-          </div>
-
-          <div class="group">
-            <span class="label">色分け</span>
-            <button id="btn-color-mode" class="btn secondary" title="コマの色分けモードを切替（科目色/タイプ別/学年別）">🎨 色分け</button>
-          </div>
-
-          <div class="group">
-            <span class="label">コマ検索</span>
-            <input id="item-search" class="mini-input" placeholder="🔍 科目/教員/クラス…" title="入力した文字を含むコマをグリッド・在庫でハイライト" style="min-width:160px" />
+            <input id="item-search" class="mini-input" placeholder="🔍 科目/教員/クラス…" title="入力した文字を含むコマをグリッド・在庫でハイライト" style="min-width:150px" />
             <button id="btn-item-search-clear" class="btn secondary" style="padding:2px 6px;font-size:11px" title="検索クリア">✕</button>
-            <span id="item-search-count" class="muted small" style="min-width:40px"></span>
-          </div>
-
-          <div class="group">
-            <span class="label">制約表示</span>
-            <button id="btn-constraint-overlay" class="btn secondary" title="選択中コマの配置可否オーバーレイ（緑=OK/赤=NG）">🚦 配置可否</button>
-          </div>
-
-          <div class="group">
-            <span class="label">別窓</span>
-            <details class="hdr-more" id="float-more">
-              <summary class="btn secondary" title="個人窓を開く">🗔 別窓 ▾</summary>
-              <div class="hdr-more-panel">
-                <button id="btn-pop-teacher" class="btn secondary hdr-more-item">👥 個人教員</button>
-                <button id="btn-pop-class" class="btn secondary hdr-more-item">🏫 個人クラス</button>
-                <button id="btn-pop-room" class="btn secondary hdr-more-item">🚪 個人教室</button>
-                <button id="btn-pop-stock" class="btn secondary hdr-more-item">📦 在庫</button>
-                <button id="btn-close-all-floats" class="btn secondary hdr-more-item" title="全ての個人窓を閉じる">✕ 全窓を閉じる</button>
-              </div>
-            </details>
+            <span id="item-search-count" class="muted small" style="min-width:36px"></span>
+            <input id="row-filter" class="mini-input" placeholder="行検索（1-7 / 葛山 …）" style="min-width:130px" />
           </div>
 
           <div class="group highlight">
             <span class="label">AI</span>
-            <select id="ai-algo" class="sel" title="探索アルゴリズム">
-              <option value="greedy">Greedy</option>
-              <option value="sa">SA🔥 焼きなまし(高速)</option>
-              <option value="tabu">Tabu🚫 タブー</option>
-              <option value="island">Island🏝 島モデル</option>
-              <option value="ga">GA🧬 遺伝的</option>
-              <option value="auto" selected>Auto⚡ 全混合</option>
-            </select>
-            <select id="ai-mode" class="sel">
-              <option value="gentle">穏やか</option>
-              <option value="normal" selected>標準</option>
-              <option value="bold">大胆</option>
-            </select>
-            <label class="ai-opt">試行 <input id="ai-tries" class="num" type="number" min="1" max="500"
-                value="30"></label><label class="ai-opt">時間 <input id="ai-seconds" class="num" type="number" min="0"
-                max="120" value="30">秒</label>
-            <label class="ai-opt">ランダム <input id="ai-rand" type="range" min="0" max="100" value="35"><span
-                id="ai-rand-val" class="muted small">0.35</span></label>
-            <label class="ai-opt"><input id="ai-balance" type="checkbox" checked>偏り抑制</label>
-            <label class="ai-opt"><input id="ai-noconsec" type="checkbox" checked>同教科連続回避</label>
-            <label class="ai-opt" title="配置済みコマを在庫へ外さず、全配置のまま違反を最小化する"><input id="ai-keep-placed" type="checkbox">配置数維持</label>
-            <label class="ai-opt" title="教員が1日で『授業→空き→授業』となる中抜け（空きコマ）を減らす"><input id="ai-min-gap" type="checkbox">空きコマ最小化</label>
-            <label class="ai-opt" title="教員の担当コマ数を曜日間で平準化する（特定の曜日への集中を避ける）"><input id="ai-balance-load" type="checkbox">1日コマ平準化</label>
             <button id="btn-ai" class="btn primary">AI配置</button>
             <button id="btn-ai-run" class="btn secondary">AI探索開始</button>
             <div id="ai-status-wrap"
@@ -616,15 +517,116 @@
               <span id="ai-status" class="muted small"
                 style="flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
             </div>
-            <div class="spacer"></div>
-            <div class="ui-scale">
-              <span class="muted small">UI</span>
-              <button id="ui-minus" class="btn secondary" title="UIを小さく">−</button>
-              <span id="ui-scale-label" class="muted small" style="min-width:44px;text-align:center;">100%</span>
-              <button id="ui-plus" class="btn secondary" title="UIを大きく">＋</button>
-            </div>
-            <button id="btn-clear-placed" class="btn danger" title="配置だけ消す（在庫は残る）">配置クリア</button>
           </div>
+
+          <!-- 【C-1】詳細メニュー（普段は畳んでおき、時間割の表示面積を最大化） -->
+          <details class="hdr-more toolbar-more" id="toolbar-more">
+            <summary class="btn secondary" title="表示・AI詳細・その他">⚙ その他 ▾</summary>
+            <div class="hdr-more-panel toolbar-more-panel">
+
+              <div class="group">
+                <span class="label">ドロップ</span>
+                <label class="chk"><input type="radio" name="drop" value="safe" checked /> 警告</label>
+                <label class="chk"><input type="radio" name="drop" value="swap" /> 強制入替</label>
+                <label class="chk" title="衝突確認なしで即配置（移動先コマは在庫へ）"><input type="radio" name="drop" value="force" /> 強制上書</label>
+              </div>
+
+              <!-- 【C-2】表示切替（Fit/Scroll）と密度を1グループに統合 -->
+              <div class="group">
+                <span class="label">表示切替</span>
+                <button id="btn-fit" class="btn secondary" title="1画面に収める（在庫=上/薄型・プロパティOFF・密度自動）">Fit</button>
+                <button id="btn-scroll" class="btn secondary" title="読みやすさ優先（在庫=左・プロパティON・密度中）">Scroll</button>
+                <span class="label" style="margin-left:8px">密度</span>
+                <button id="btn-density-auto" class="btn secondary">自動</button>
+                <button id="btn-density-tight" class="btn secondary">小</button>
+                <button id="btn-density-mid" class="btn secondary">中</button>
+                <button id="btn-density-wide" class="btn secondary">大</button>
+                <input id="density-fine" type="range" min="-2" max="2" step="1" value="0" title="密度の微調整" />
+                <span id="density-fine-label" class="muted small">±0</span>
+              </div>
+
+              <div class="group">
+                <span class="label">コマ高</span>
+                <button id="btn-cell-down" class="btn secondary" title="コマを低く">-</button>
+                <button id="btn-cell-reset" class="btn secondary" title="標準に戻す">0</button>
+                <button id="btn-cell-up" class="btn secondary" title="コマを高く">+</button>
+                <span id="cell-step-label" class="muted small">±0</span>
+              </div>
+
+              <div class="group">
+                <span class="label">在庫/プロパティ</span>
+                <button id="btn-stock-left" class="btn secondary">在庫:左</button>
+                <button id="btn-stock-top" class="btn secondary">在庫:上</button>
+                <button id="btn-stock-compact" class="btn secondary" title="上表示時の薄型モード">薄型</button>
+                <button id="btn-prop-toggle" class="btn secondary">プロパティON/OFF</button>
+              </div>
+
+              <div class="group">
+                <span class="label">教員並替</span>
+                <button id="btn-tea-sort-name-edit" class="btn secondary">名前</button>
+                <button id="btn-tea-sort-subj" class="btn secondary">教科</button>
+                <button id="btn-tea-sort-manual" class="btn secondary" title="ドラッグで並べ替え">手動</button>
+              </div>
+
+              <div class="group">
+                <span class="label">色分け</span>
+                <button id="btn-color-mode" class="btn secondary" title="コマの色分けモードを切替（科目色/タイプ別/学年別）">🎨 色分け</button>
+              </div>
+
+              <div class="group">
+                <span class="label">制約表示</span>
+                <button id="btn-constraint-overlay" class="btn secondary" title="選択中コマの配置可否オーバーレイ（緑=OK/赤=NG）">🚦 配置可否</button>
+              </div>
+
+              <div class="group">
+                <span class="label">別窓</span>
+                <details class="hdr-more" id="float-more">
+                  <summary class="btn secondary" title="個人窓を開く">🗔 別窓 ▾</summary>
+                  <div class="hdr-more-panel">
+                    <button id="btn-pop-teacher" class="btn secondary hdr-more-item">👥 個人教員</button>
+                    <button id="btn-pop-class" class="btn secondary hdr-more-item">🏫 個人クラス</button>
+                    <button id="btn-pop-room" class="btn secondary hdr-more-item">🚪 個人教室</button>
+                    <button id="btn-pop-stock" class="btn secondary hdr-more-item">📦 在庫</button>
+                    <button id="btn-close-all-floats" class="btn secondary hdr-more-item" title="全ての個人窓を閉じる">✕ 全窓を閉じる</button>
+                  </div>
+                </details>
+              </div>
+
+              <div class="group">
+                <span class="label">AI詳細</span>
+                <select id="ai-algo" class="sel" title="探索アルゴリズム">
+                  <option value="greedy">Greedy</option>
+                  <option value="sa">SA🔥 焼きなまし(高速)</option>
+                  <option value="tabu">Tabu🚫 タブー</option>
+                  <option value="island">Island🏝 島モデル</option>
+                  <option value="ga">GA🧬 遺伝的</option>
+                  <option value="auto" selected>Auto⚡ 全混合</option>
+                </select>
+                <select id="ai-mode" class="sel">
+                  <option value="gentle">穏やか</option>
+                  <option value="normal" selected>標準</option>
+                  <option value="bold">大胆</option>
+                </select>
+                <label class="ai-opt">試行 <input id="ai-tries" class="num" type="number" min="1" max="500" value="30"></label>
+                <label class="ai-opt">時間 <input id="ai-seconds" class="num" type="number" min="0" max="120" value="30">秒</label>
+                <label class="ai-opt">ランダム <input id="ai-rand" type="range" min="0" max="100" value="35"><span id="ai-rand-val" class="muted small">0.35</span></label>
+                <label class="ai-opt"><input id="ai-balance" type="checkbox" checked>偏り抑制</label>
+                <label class="ai-opt"><input id="ai-noconsec" type="checkbox" checked>同教科連続回避</label>
+                <label class="ai-opt" title="配置済みコマを在庫へ外さず、全配置のまま違反を最小化する"><input id="ai-keep-placed" type="checkbox">配置数維持</label>
+                <label class="ai-opt" title="教員が1日で『授業→空き→授業』となる中抜け（空きコマ）を減らす"><input id="ai-min-gap" type="checkbox">空きコマ最小化</label>
+                <label class="ai-opt" title="教員の担当コマ数を曜日間で平準化する（特定の曜日への集中を避ける）"><input id="ai-balance-load" type="checkbox">1日コマ平準化</label>
+              </div>
+
+              <div class="group">
+                <span class="label">UI</span>
+                <button id="ui-minus" class="btn secondary" title="UIを小さく">−</button>
+                <span id="ui-scale-label" class="muted small" style="min-width:44px;text-align:center;">100%</span>
+                <button id="ui-plus" class="btn secondary" title="UIを大きく">＋</button>
+                <button id="btn-clear-placed" class="btn danger" title="配置だけ消す（在庫は残る）">配置クリア</button>
+              </div>
+
+            </div>
+          </details>
         </div>
       </div>
 
