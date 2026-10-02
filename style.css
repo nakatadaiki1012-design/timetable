@@ -731,7 +731,8 @@ body {
   --cardpy: 1px;
   --cardpx: 2px;
   --sub: 10px;
-  --meta: 9px
+  --meta: 9px;
+  --table-minw: 820px
 }
 
 .grid-wrapper[data-dl="1"] {
@@ -741,7 +742,8 @@ body {
   --cardpy: 2px;
   --cardpx: 3px;
   --sub: 10px;
-  --meta: 9px
+  --meta: 9px;
+  --table-minw: 880px
 }
 
 .grid-wrapper[data-dl="2"] {
@@ -751,7 +753,8 @@ body {
   --cardpy: 3px;
   --cardpx: 5px;
   --sub: 11px;
-  --meta: 9px
+  --meta: 9px;
+  --table-minw: 940px
 }
 
 .grid-wrapper[data-dl="3"] {
@@ -761,7 +764,8 @@ body {
   --cardpy: 4px;
   --cardpx: 6px;
   --sub: 12px;
-  --meta: 10px
+  --meta: 10px;
+  --table-minw: 1000px
 }
 
 .grid-wrapper[data-dl="4"] {
@@ -770,8 +774,9 @@ body {
   --gap: 2px;
   --cardpy: 4px;
   --cardpx: 6px;
-  --sub: 12px;
-  --meta: 10px
+  --sub: 13px;
+  --meta: 11px;
+  --table-minw: 1160px
 }
 
 .grid-wrapper[data-dl="5"] {
@@ -780,8 +785,9 @@ body {
   --gap: 3px;
   --cardpy: 5px;
   --cardpx: 7px;
-  --sub: 12px;
-  --meta: 10px
+  --sub: 14px;
+  --meta: 11px;
+  --table-minw: 1320px
 }
 
 .grid-wrapper[data-dl="6"] {
@@ -790,8 +796,9 @@ body {
   --gap: 3px;
   --cardpy: 6px;
   --cardpx: 8px;
-  --sub: 13px;
-  --meta: 11px
+  --sub: 15px;
+  --meta: 12px;
+  --table-minw: 1480px
 }
 
 .timetable {
@@ -799,7 +806,9 @@ body {
   border-collapse: collapse;
   table-layout: fixed;
   font-size: 12px;
-  min-width: 980px
+  /* 【B-1/B-6】密度(--table-minw)と文字サイズ(--tableAdj)でコマ幅が連動して広がる。
+     既定(dl3以下)は1280pxに収まり、大きくすると横スクロール（見出しは固定）になる。 */
+  min-width: calc(var(--table-minw, 960px) + var(--tableAdj, 0px))
 }
 
 .timetable th,
@@ -807,6 +816,15 @@ body {
   border: 1px solid #94a3b8;
   padding: 0;
   text-align: center
+}
+
+/* 【B-5】table-layout:fixed は先頭行(thead)のセル幅で列幅が決まるため、
+   1列目(時限/クラス/教員の見出し列)に十分な幅を与えて「1-1」等が潰れないようにする */
+.timetable thead th:first-child,
+.timetable tbody th {
+  width: 76px;
+  min-width: 76px;
+  max-width: 76px
 }
 
 .timetable thead th {
@@ -828,9 +846,11 @@ body {
   font-weight: 1000;
   cursor: grab;
   user-select: none;
-  white-space: normal;
-  word-break: break-all;
-  overflow-wrap: break-word;
+  /* 【B-5】「1-1」等のクラス名が「1-\n1」と折れないようにする。
+     長い教員名はあふれる場合のみ…で省略（中途半端な折返しをしない）。 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   line-height: 1.2;
   padding: 2px 4px;
   vertical-align: middle
@@ -1002,6 +1022,32 @@ body {
   width: 340px;
   min-width: 260px;
   font-size: 13px
+}
+
+/* 【C-3】未選択時はプロパティ欄を細く畳んで時間割の表示面積を最大化 */
+.panel.prop.collapsed {
+  width: 30px !important;
+  min-width: 30px !important;
+  flex: 0 0 30px !important;
+  overflow: hidden;
+  cursor: pointer
+}
+.panel.prop.collapsed .prop-body,
+.panel.prop.collapsed .panel-head .row>.spacer,
+.panel.prop.collapsed .panel-head .row>button {
+  display: none
+}
+.panel.prop.collapsed .panel-head {
+  padding: 6px 0
+}
+.panel.prop.collapsed .panel-head .row {
+  justify-content: center
+}
+.panel.prop.collapsed .panel-head strong {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #64748b
 }
 
 .prop-body {
@@ -1901,13 +1947,20 @@ body.prop-hide #split-prop {
 }
 
 .lesson .l1 .subj {
-  font-weight: 1000;
+  font-weight: 800;
   font-size: calc(var(--sub) + var(--subAdj));
-  white-space: nowrap;
+  /* 【B-2】狭いコマでも中途半端に切れないよう、最大2行で折り返し、あふれる場合のみ…で省略 */
+  white-space: normal;
   overflow: hidden;
-  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-clamp: 2;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.1;
   flex: 1 1 auto;
-  min-width: 3.2ch;
+  min-width: 0;
   text-align: left
 }
 
@@ -2021,7 +2074,7 @@ body.prop-hide #split-prop {
   gap: 4px;
   overflow: hidden;
   min-height: var(--stockItemH, 96px);
-  aspect-ratio: 1 / 1;
+  aspect-ratio: auto;
   position: relative
 }
 
@@ -2109,7 +2162,7 @@ body.prop-hide #split-prop {
 body[data-stock-size="xs"] .stock-item {
   min-height: 62px;
   padding: 4px 6px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="xs"] .stock-item .si-name {
@@ -2138,7 +2191,7 @@ body[data-stock-size="xs"] .stock-item .si-place {
 
 body[data-stock-size="sm"] .stock-item {
   min-height: 78px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="sm"] .stock-item .si-name {
@@ -2152,12 +2205,12 @@ body[data-stock-size="sm"] .stock-item .si-chips .chip {
 
 body[data-stock-size="md"] .stock-item {
   min-height: 96px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="lg"] .stock-item {
   min-height: 118px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="lg"] .stock-item .si-name {
@@ -2166,24 +2219,30 @@ body[data-stock-size="lg"] .stock-item .si-name {
 
 body[data-stock-size="xl"] .stock-item {
   min-height: 148px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="xl"] .stock-item .si-name {
   font-size: 24px
 }
 
-/* 2-span continuation card in grid */
+/* 2-span continuation card in grid（【B-4】2コマ目も科目名を表示） */
 .lesson.span-cont {
-  opacity: .72;
-  border-style: dashed;
-  border-width: 1px 1px 1px 3px
+  opacity: .9;
+  border-top-style: dashed
 }
 
 .lesson.span-cont .subj {
-  font-size: calc(var(--sub) + var(--subAdj) - 1px);
+  font-size: calc(var(--sub) + var(--subAdj));
   color: inherit;
-  opacity: .85
+  opacity: 1
+}
+
+.lesson .cont-mark {
+  flex: 0 0 auto;
+  font-size: calc(var(--meta) + var(--metaAdj));
+  opacity: .6;
+  margin-left: 2px
 }
 
 .lesson.span-cont .l2 {
@@ -7085,6 +7144,35 @@ td.slot-ng {
   justify-content: flex-start;
 }
 
+/* 【C-1】ツールバーの「⚙ その他」詳細パネル（明るい・広め・グループ縦積み） */
+.toolbar-more { position: relative; }
+.toolbar-more-panel {
+  left: 0;
+  right: auto;
+  min-width: 560px;
+  max-width: 94vw;
+  max-height: 74vh;
+  overflow: auto;
+  background: #ffffff;
+  color: #0f172a;
+  gap: 6px;
+}
+.toolbar-more-panel .group {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  padding: 3px 0;
+  border-bottom: 1px solid #eef2f7;
+}
+.toolbar-more-panel .group:last-child { border-bottom: none; }
+.toolbar-more-panel .label {
+  color: #475569;
+  min-width: 74px;
+  font-weight: 700;
+}
+
 /* ── 印刷 全体プレビュー（全ページ縮小一覧） ── */
 .print-overview-overlay {
   position: fixed;
@@ -7199,3 +7287,317 @@ td.slot-ng {
   border-radius: 3px; padding: 0 3px; margin-left: 2px;
   vertical-align: top; line-height: 1.5;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   v62 読みやすさ改善（コマ幅確保・切れ防止・バッジの角配置）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 【1/2】在庫欄を細くして時間割に幅を回す（ドラッグで広げられる） */
+.stock {
+  width: 232px;
+  min-width: 180px
+}
+
+/* 時間割の見出し列（教員/クラス/教室）を少し細く */
+.timetable thead th:first-child,
+.timetable tbody th {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px
+}
+
+/* コマ: 色帯を細く・余白を詰め、文字に幅を回す。バッジは角に重ねるため relative */
+.timetable .lesson {
+  position: relative;
+  border-left-width: 3px !important;
+  padding: 2px 2px 2px 3px;
+  gap: 1px
+}
+
+/* 【1】クラス名・教員名は1単位ごとに折り返さない（「1-1」が「1-/1」に割れない） */
+.lesson .nb {
+  white-space: nowrap
+}
+
+/* 【2】科目名・2行目は最大2行。1文字ずつの縦並びにならないよう、幅は文字に全部使う */
+.timetable .lesson .l1 {
+  gap: 0
+}
+.timetable .lesson .l1 .subj,
+.timetable .lesson .l2 .teacher {
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.12;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-overflow: clip
+}
+.timetable .lesson .l2 {
+  margin-top: 1px
+}
+
+/* 【3】バッジ類（2連・同・⚠・⤵）は文字の横に並べず、右上角の小さな印にする */
+.timetable .lesson .badge2,
+.timetable .lesson .badge-simul,
+.timetable .lesson .vio-badge,
+.timetable .lesson .cont-mark {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 10px;
+  height: 10px;
+  border-radius: 3px;
+  pointer-events: auto;
+  z-index: 1
+}
+.timetable .lesson .badge2 {
+  display: none
+}
+.timetable .lesson .badge-simul {
+  top: auto;
+  bottom: 1px
+}
+.timetable .lesson .vio-badge {
+  padding: 0 1px;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px #fff
+}
+.timetable .lesson .cont-mark {
+  background: rgba(255, 255, 255, .8);
+  color: #475569;
+  opacity: 1
+}
+/* 違反コマは内側の赤枠だけ（文字は隠さない） */
+.timetable .lesson.violate {
+  box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, .9)
+}
+
+/* 【1/2】列の最小幅を文字サイズから決める（約2文字＋余白）。
+   月〜金が入りきらない幅では、見出し固定のまま時間割だけ横スクロールになる。 */
+.grid-wrapper {
+  --colmin: calc((var(--sub) + var(--subAdj, 0px)) * 2.1 + 9px)
+}
+.timetable {
+  min-width: max(calc(var(--table-minw, 960px) + var(--tableAdj, 0px)), calc(60px + var(--ncols, 30) * var(--colmin)))
+}
+.timetable .cell-stack {
+  padding: 1px
+}
+.timetable .lesson {
+  padding: 1px 1px 1px 2px
+}
+
+/* 教員表示: 2行目は科目名のみ（教室は狭いと読めないので、広い密度のときだけ次の行に出す） */
+.timetable .lesson.mode-teacher .l2 {
+  flex-wrap: wrap;
+  gap: 0
+}
+.timetable .lesson.mode-teacher .roommini {
+  display: none
+}
+.grid-wrapper[data-dl="4"] .timetable .lesson.mode-teacher .roommini,
+.grid-wrapper[data-dl="5"] .timetable .lesson.mode-teacher .roommini,
+.grid-wrapper[data-dl="6"] .timetable .lesson.mode-teacher .roommini {
+  display: block;
+  flex: 0 0 100%;
+  max-width: 100%;
+  margin: 0;
+  text-align: left
+}
+
+/* 教室表示: クラス名・科目名・教員名を横に詰めず縦に並べる */
+.timetable .lesson.mode-room .l1 {
+  flex-wrap: wrap
+}
+.timetable .lesson.mode-room .l1 .rightlab {
+  flex: 0 0 100%;
+  max-width: 100%;
+  margin: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: clip
+}
+
+/* 細くした在庫欄の見出し: 折り返して横書きのまま並べる（縦1文字並びを防ぐ） */
+#stock-panel .panel-head .row {
+  flex-wrap: wrap;
+  row-gap: 4px
+}
+#stock-panel .panel-head .chk {
+  white-space: nowrap
+}
+#stock-panel .panel-head .stock-search-inline {
+  flex: 1 1 90px;
+  min-width: 80px
+}
+#stock-panel .panel-head .row>.spacer {
+  display: none
+}
+
+/* 【3】⚠と⤵は文字の少ない右下角へ。違反コマは2行目の右端だけ空けて、文字に重ならないようにする */
+.timetable .lesson .vio-badge,
+.timetable .lesson .cont-mark {
+  top: auto;
+  bottom: 1px
+}
+.timetable .lesson.violate .l2 {
+  padding-right: 9px
+}
+.timetable .lesson.violate:not(:has(.l2)) .l1 {
+  padding-right: 8px
+}
+
+/* ═══ v62 【7】細かいUI修正 ═══ */
+
+/* ヘッダ: 右側のボタンが画面外に隠れていた（1440pxで約600px分）。
+   入りきらない分は2段目に折り返して、全ボタンが常に見えるようにする */
+body {
+  display: flex;
+  flex-direction: column
+}
+.app-header {
+  height: auto;
+  min-height: 48px;
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 4px 6px;
+  position: relative;
+  z-index: 50
+}
+.header-right {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+  overflow: visible
+}
+.app-main {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0
+}
+
+/* AIの状況表示: 進捗バーを文字の下の細線にして、文字に幅を全部使う */
+#ai-status-wrap {
+  position: relative;
+  min-width: 140px !important
+}
+#ai-progress-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px !important;
+  max-width: 100%
+}
+
+/* 下の操作バー: 画面下のヒント帯に重ならないよう、その上に浮かせる */
+#quick-action-bar {
+  bottom: 46px;
+  border-radius: 16px;
+  border-bottom: 2px solid #334155
+}
+#quick-action-bar:not(.show) {
+  transform: translateX(-50%) translateY(160px)
+}
+
+/* プロパティ欄の「即配置可」「交換可」「難」: 途中で折り返さない */
+.slot-stat .slot-label {
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: -.02em
+}
+/* 空のメッセージ欄が80px場所を取り、ヘッダが3段になっていた */
+.app-header .msg:empty {
+  display: none
+}
+.app-header .msg {
+  min-width: 0
+}
+/* 通知メッセージ: ヘッダ内で120pxに切れていた＋表示のたびにヘッダ高さが変わっていた。
+   ヘッダ右下に浮かぶ通知にして、全文を表示する */
+.app-header .msg:not(:empty) {
+  display: block;
+  position: absolute;
+  right: 10px;
+  top: calc(100% + 6px);
+  max-width: min(640px, 90vw);
+  white-space: normal;
+  overflow: visible;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  opacity: 1;
+  z-index: 9500;
+  pointer-events: none
+}
+/* 作成画面以外のタブでは、下の操作バー（提案・ロック・在庫へ）を出さない */
+body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
+  display: none
+}
+
+/* ===== 【UI】コマ表示の整理: 角チップ・連動コマ強調 ===== */
+.lesson { position: relative; }
+/* 種別チップ（合同/同時展開/並列/複数教員/連続数/違反）は右上に小さく重ね、本文の横幅を食わない */
+.lesson .lchips {
+  position: absolute; top: 1px; right: 1px;
+  display: flex; gap: 1px; pointer-events: auto; z-index: 1;
+}
+.lesson .lchips:empty { display: none; }
+.lchip {
+  font-size: 8px; font-weight: 900; line-height: 10px;
+  min-width: 10px; height: 10px; padding: 0 2px;
+  border-radius: 3px; color: #fff; text-align: center;
+  box-shadow: 0 0 0 1px rgba(255,255,255,.85);
+}
+.lchip.c-gou  { background: #0e7490; }   /* 合同 */
+.lchip.c-simul{ background: #7c3aed; }   /* 同時展開 */
+.lchip.c-par  { background: #c2410c; }   /* 並列 */
+.lchip.c-tea  { background: #475569; }   /* 複数教員 */
+.lchip.c-span { background: #0f766e; }   /* 連続数 */
+.lchip.c-vio  { background: #dc2626; }   /* 違反 */
+.grid-wrapper[data-dl="0"] .lchip, .grid-wrapper[data-dl="1"] .lchip { font-size: 7px; min-width: 8px; height: 8px; line-height: 8px; padding: 0 1px; }
+/* 旧インラインバッジは使わない（チップに統合） */
+.lesson .l1 .badge2, .lesson .l1 .badge-simul, .lesson .l1 .vio-badge { display: none; }
+/* チップ分だけ1行目の右側をあける */
+.lesson .l1 { padding-right: 2px; }
+
+/* 違反は枠でも示す（チップと二重で見落とし防止） */
+.lesson.violate { box-shadow: inset 0 0 0 2px rgba(220, 38, 38, .75); }
+
+/* 連動コマ: 選択中のコマと一緒に動く／同時に開講するコマを紫の実線で強調 */
+.lesson.linked-root  { outline: 3px solid #7c3aed !important; outline-offset: -1px; z-index: 3; }
+.lesson.linked-hl,
+.lesson.linked-hover { outline: 2px solid #7c3aed !important; outline-offset: -1px; z-index: 3;
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, .25); }
+
+/* 同じ教員・同じクラスの関連コマは控えめな色付けに（従来の点線は全行が光って煩雑だった） */
+.lesson.related-highlight {
+  outline: none !important;
+  filter: none;
+  box-shadow: inset 0 0 0 999px rgba(251, 191, 36, .16);
+}
+
+/* 通常密度では文字なしの小さな色ドットに（本文に重ならない）。密度「大」以上で文字チップ表示 */
+.lesson .lchips { top: 2px; right: 2px; gap: 2px; }
+.lchip { font-size: 0 !important; min-width: 6px !important; width: 6px; height: 6px !important; padding: 0 !important; border-radius: 50% !important; box-shadow: 0 0 0 1px #fff; }
+.grid-wrapper[data-dl="4"] .lchip, .grid-wrapper[data-dl="5"] .lchip, .grid-wrapper[data-dl="6"] .lchip {
+  font-size: 9px !important; width: auto; min-width: 12px !important; height: 12px !important; line-height: 12px; padding: 0 2px !important; border-radius: 3px !important;
+}
+.lesson .lchip.c-span { display: none; } /* 連続は継続コマ側で表示済み */
+
+/* 長い科目名・クラス名は少し小さく詰めて2行に収め、「地理…」のような途中省略を減らす */
+.lesson .l1 .subj.long  { font-size: calc(var(--sub) + var(--subAdj) - 1.5px); letter-spacing: -.04em; line-height: 1.02; }
+.lesson .l1 .subj.xlong { font-size: calc(var(--sub) + var(--subAdj) - 2.5px); letter-spacing: -.06em; }
+.lesson .l2 .teacher { font-size: calc(var(--meta) + var(--metaAdj) - .5px); opacity: .85; }

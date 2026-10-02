@@ -238,8 +238,16 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   /* =======================
      Constants / Utils
   ======================= */
+  // 【A-3】土曜(6日制)・日曜対応。DAYS は参照を保ったまま中身を差し替える（148箇所の参照を壊さない）。
+  // 既定は月〜金。6日制ファイル読込時などに setActiveDayCount(6) で土曜を含む形に伸縮する。
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-  const DAYJP = { Mon: '月', Tue: '火', Wed: '水', Thu: '木', Fri: '金' };
+  const DAYJP = { Mon: '月', Tue: '火', Wed: '水', Thu: '木', Fri: '金', Sat: '土', Sun: '日' };
+  const ALL_DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function setActiveDayCount(n) {
+    n = Math.max(1, Math.min(7, parseInt(n, 10) || 5));
+    DAYS.length = 0;
+    for (let i = 0; i < n; i++) DAYS.push(ALL_DAY_KEYS[i]);
+  }
   /* v48: 仮配置モード（Sandboxモード） */
   let _sandboxMode = false;
   let _sandboxPlacements = null; // 仮配置中の placements バックアップ（元の状態）
@@ -527,6 +535,17 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
     const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
     return lum < 0.55;
+  }
+  // 【B-3】コマ背景用の淡色（明度88%前後）を返す。文字は濃色にしコントラスト比4.5以上を確保する。
+  function paleColor(hex, mix = 0.16) {
+    try {
+      const m = (hex || '#888888').replace('#', '');
+      const r = parseInt(m.slice(0, 2), 16), g = parseInt(m.slice(2, 4), 16), b = parseInt(m.slice(4, 6), 16);
+      const pr = Math.round(255 - (255 - r) * mix);
+      const pg = Math.round(255 - (255 - g) * mix);
+      const pb = Math.round(255 - (255 - b) * mix);
+      return `rgb(${pr},${pg},${pb})`;
+    } catch (e) { return '#f1f5f9'; }
   }
 
   /* ── v45.2: colorMode='type' 用のコマ色取得（2色モード）
@@ -914,10 +933,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const timeStr = now2.toTimeString().slice(0, 8);
 
     // 曜日・時限設定
-    const DAY_JA = { Mon: '月曜日', Tue: '火曜日', Wed: '水曜日', Thu: '木曜日', Fri: '金曜日' };
+    const DAY_JA = { Mon: '月曜日', Tue: '火曜日', Wed: '水曜日', Thu: '木曜日', Fri: '金曜日', Sat: '土曜日', Sun: '日曜日' };
     const activeDays = DAYS.filter(d => (state.settings.periodsByDay[d] || 0) > 0);
     const numDays = activeDays.length || 5;
     const numPeriods = Math.max(...activeDays.map(d => state.settings.periodsByDay[d] || 6), 6);
+    // 【A-5】曜日ごとの実時限数を可用性ブロックに反映（readerは '01' ペア数=時限数と解釈）
+    const perDayPeriods = activeDays.map(d => state.settings.periodsByDay[d] || numPeriods);
+    const availBlock = (pd) => '00' + '01'.repeat(Math.max(0, pd)); // '00'ヘッダ + pd個の'01'
 
     // 可用性ビット列（全コマ利用可能）
     // フォーマット: 各日 numPeriods+1 ビット（先頭0 + 各コマ1）を16ビット幅で表現
@@ -949,7 +971,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     R(`${numDays},${PAD14(dayFields, 14)}`);
     const periodFields = ['１','２','３','４','５','６','７','８'].slice(0, numPeriods).map(n => `"${n}"`);
     R(`${numPeriods},${PAD14(periodFields, 15)}`);
-    R(`"${Array(numDays).fill(AVAIL_DAY).join('-')}-CJ0001010101010101010000000000000000"`);
+    R(`"${perDayPeriods.map(availBlock).join('-')}-CJ0001010101010101010000000000000000"`);
 
     // ── OPTION ──
     R('"OPTION:",0');
@@ -959,130 +981,169 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     R('18,0,1,4,4,1,0');
     R(`-5,1,0,"${'0'.repeat(16)}-${'0'.repeat(16)}-${'0'.repeat(16)}-${'0'.repeat(16)}-${'0'.repeat(16)}-CJ${'0'.repeat(34)}","10","0"`);
 
-    // ── CLASS ──
-    // classmatch のクラス一覧を収集
-    const classSet = new Set();
+    // 【A-5】クラス/教室のマスタをitemから収集し、ID対応表を作る
+    const classSet = new Set(), roomSet = new Set();
     for (const it of Object.values(state.items)) {
-      (it.cls || []).forEach(c => classSet.add(c));
+      (it.cls || []).forEach(c => c && classSet.add(c));
+      (it.rooms || []).forEach(r => r && roomSet.add(r));
     }
     const classList = Array.from(classSet).sort((a, b) => a.localeCompare(b, 'ja'));
+    const classIdOf = new Map(classList.map((c, i) => [c, i + 1]));
+    const dayNumOf = (d) => activeDays.indexOf(d) + 1; // activeDays順の1始まり曜日番号
+    const availFull = Array(numDays).fill(AVAIL_DAY).join('-'); // 全コマ利用可
+
+    // ── CLASS ──
     R(`"CLASS:",${classList.length}`);
-    // エントリ0（空）
     R('0,"","","","　　高　　　"');
     R('0,1,"","",""');
     R(`0,"${avail5}-CJ${'0'.repeat(34)}"`);
-    classList.forEach((cls, i) => {
-      const id = i + 1;
-      const short = cls.replace(/-/, '−');  // half→full width hyphen
-      const grade = cls.match(/^(\d)/) ? cls[0] + '年' : '';
-      R(`${id},"${short}","${cls}","${id}","　　高　　　"`);
-      R(`0,1,"${grade}","",""`);
-      R(`${id},"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
-    });
-
-    // ── ROOM ──
-    R(`"ROOM:",${classList.length}`);
-    R('0,"","","","　　高　　　"');
-    R('0,1,"","",""');
-    R(`0,"${'0'.repeat(16)}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
     classList.forEach((cls, i) => {
       const id = i + 1;
       const short = cls.replace(/-/, '−');
       const grade = cls.match(/^(\d)/) ? cls[0] + '年' : '';
       R(`${id},"${short}","${cls}","${id}","　　高　　　"`);
       R(`0,1,"${grade}","",""`);
-      R(`${id},"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+      R(`${id},"${availFull}-CJ${'0'.repeat(34)}"`);
     });
 
-    // ── LESSON ──
+    // ── ROOM (実際の教室) ──
+    const roomList = Array.from(roomSet).sort((a, b) => a.localeCompare(b, 'ja'));
+    const roomIdOf = new Map(roomList.map((r, i) => [r, i + 1]));
+    R(`"ROOM:",${roomList.length}`);
+    R('0,"","","","　　高　　　"');
+    R('0,1,"","",""');
+    R(`0,"${'0'.repeat(16)}-${availFull}-CJ${'0'.repeat(34)}"`);
+    roomList.forEach((rm, i) => {
+      const id = i + 1;
+      R(`${id},"${rm}","${rm}","${id}","　　高　　　"`);
+      R('0,1,"","",""');
+      R(`${id},"${availFull}-CJ${'0'.repeat(34)}"`);
+    });
+
+    // ── LESSON (科目: 正式名称を name に、略称を f1[3] に置く) ──
     const subjEntries = Object.entries(state.subjectCfg).filter(([, v]) => v && v.abbr);
+    const lessonIdOf = new Map(subjEntries.map(([k], i) => [k, i + 1]));
     R(`"LESSON:",${subjEntries.length}`);
     R('0,"","","","　　高　　　"');
     R('0,0,"","",""');
-    R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
     subjEntries.forEach(([key, v], i) => {
       const id = i + 1;
-      const name = v.abbr || key;
+      const fullName = key;        // 正式名称（キー）
+      const abbr = v.abbr || key;  // 略称
       const dept = v.dept ? v.dept + '科' : '';
-      R(`${id},"${name}","${name}","${name}","　　高　　　"`);
+      R(`${id},"${fullName}","${fullName}","${abbr}","　　高　　　"`);
       R(`0,1,"","${dept}",""`);
-      R(`${id},"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+      R(`${id},"${availFull}-CJ${'0'.repeat(34)}"`);
     });
 
     // ── TEACH ──
     const teachEntries = Object.entries(state.teacherCfg).filter(([n]) => n);
+    const teachIdOf = new Map(teachEntries.map(([n], i) => [n, i + 1]));
     R(`"TEACH:",${teachEntries.length}`);
     R('0,"","","","　　高　　　"');
     R('0,1,"","","","","","00-1"');
-    R(`0,0,0,0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,0,0,0,"${availFull}-CJ${'0'.repeat(34)}"`);
     teachEntries.forEach(([name, v], i) => {
       const id = i + 1;
       const abbr = v.abbr || name;
       const dept = v.dept ? v.dept + '科' : '';
       R(`${id},"${name}","${abbr}","${abbr}","　　高　　　"`);
       R(`0,1,"","${dept}","","","","00-1"`);
-      R(`0,0,0,0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+      R(`0,0,0,0,"${availFull}-CJ${'0'.repeat(34)}"`);
     });
 
     // ── SJYUGYO (空) ──
     R('"SJYUGYO:",0');
     R('0,"","",""');
-    R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
     R('0');
     R('0,0,0,0,"                                 ","同時展開            同時展開            同時展開            "');
     R('0');
 
-    // ── JUGYO ──
-    // 教科→IDマップ
-    const subjIdMap = {};
-    subjEntries.forEach(([key], i) => { subjIdMap[key] = i + 1; });
-    // アイテムをJUGYO化（1アイテム=1コマ → 同一クラス+教科の繰り返し）
-    // まず (class, subjKey) でグループ化してcount計算
-    const jugyoMap = {};  // cls|subjKey -> {classId, lessonId, name, count}
-    classList.forEach((cls, ci) => {
-      const cid = ci + 1;
-      for (const it of Object.values(state.items)) {
-        if (!(it.cls || []).includes(cls)) continue;
-        const key = `${cls}|${it.subjKey || it.subj}`;
-        if (!jugyoMap[key]) {
-          jugyoMap[key] = { classId: cid, lessonId: subjIdMap[it.subjKey || it.subj] || 0, name: it.subj, count: 0, cls };
-        }
-        jugyoMap[key].count++;
-      }
-    });
-    const jugyoList = Object.values(jugyoMap);
-    R(`"JUGYO:",${jugyoList.length}`);
+    // ── JUGYO (item署名でグループ化し、2連(span)・配置を保持) ──
+    // 署名: クラス集合 | 科目 | 教員集合 | 教室集合 | span
+    const jugyoGroups = [], jugyoSig = new Map();
+    for (const it of Object.values(state.items)) {
+      const span = it.span || 1;
+      const sig = (it.cls || []).slice().sort().join('+') + '|' + (it.subjKey || it.subj) + '|' +
+        (it.teas || []).slice().sort().join('+') + '|' + (it.rooms || []).slice().sort().join('+') + '|' + span;
+      let g = jugyoSig.get(sig);
+      if (!g) { g = { cls: it.cls || [], subj: it.subj, subjKey: it.subjKey || it.subj, teas: it.teas || [], rooms: it.rooms || [], span, sessions: [] }; jugyoSig.set(sig, g); jugyoGroups.push(g); }
+      const pl = state.placements[it.id];
+      if (pl && pl.day) g.sessions.push({ day: pl.day, period: pl.period });
+      else g.unplaced = (g.unplaced || 0) + 1; // 【6】未配置(在庫)のコマも数えて出力する
+    }
+    // (エンティティID → セル配置[]) を作りながらJUGYOを出力
+    const jClassCells = {}, jTeachCells = {}, jRoomCells = {};
+    R(`"JUGYO:",${jugyoGroups.length}`);
     R('0,"","",""');
-    R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
+    R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
     R('0,0,0,0,"                                 "');
     R('0');
-    jugyoList.forEach((j, i) => {
-      const id = i + 1;
-      const clsIdx = classList.indexOf(j.cls);
-      R(`${id},"${j.name}","${j.name}","${j.name}"`);
-      R(`0,"${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-${AVAIL_DAY}-CJ${'0'.repeat(34)}"`);
-      R(`${clsIdx + 1},${j.lessonId || 0},${clsIdx + 1},0,"${'○'.repeat(Math.min(j.count, 8))}${'　'.repeat(Math.max(0, 8 - j.count))}                       "`);
-      R(String(j.count));
-      for (let p = 1; p <= j.count; p++) {
-        R(`0,0,10,${p},${p}`);
+    jugyoGroups.forEach((g, gi) => {
+      const jid = gi + 1;
+      const cId = classIdOf.get(g.cls[0]) || 0;
+      const lId = lessonIdOf.get(g.subjKey) || 0;
+      const rId = roomIdOf.get(g.rooms[0]) || 0;
+      const perLines = [];
+      for (const s of g.sessions) {
+        const dn = dayNumOf(s.day);
+        if (dn < 1) continue;
+        for (let dp = 0; dp < g.span; dp++) {
+          const per = s.period + dp;
+          if (per > numPeriods) continue;
+          perLines.push(`${dn},${per},${rId},1,${dp + 1}`); // st=1,en=dp+1 で連続数を表現
+          for (const c of g.cls) { const ci = classIdOf.get(c); if (ci) (jClassCells[ci] || (jClassCells[ci] = [])).push({ day: s.day, period: per, jid }); }
+          for (const t of g.teas) { const ti = teachIdOf.get(t); if (ti) (jTeachCells[ti] || (jTeachCells[ti] = [])).push({ day: s.day, period: per, jid }); }
+          for (const rm of g.rooms) { const ki = roomIdOf.get(rm); if (ki) (jRoomCells[ki] || (jRoomCells[ki] = [])).push({ day: s.day, period: per, jid }); }
+        }
       }
+      // 【6】未配置のコマは「曜日0・時限0」の時限行として出力（週あたりコマ数を保持）
+      for (let u = 0; u < (g.unplaced || 0); u++) {
+        for (let dp = 0; dp < g.span; dp++) perLines.push(`0,0,${rId},1,${dp + 1}`);
+      }
+      // 未配置コマを含む授業は、配置が無くても担当が分かるよう4列目に教員IDを書く
+      const tId = g.unplaced ? (teachIdOf.get(g.teas[0]) || 0) : 0;
+      // 一度も配置されていない授業は J-Room に現れないため、3列目に教室IDを書く（配置済みは従来どおり）
+      const roomCol = (g.unplaced && !g.sessions.length && rId) ? rId : cId;
+      const nSess = g.sessions.length + (g.unplaced || 0);
+      const name = g.subj;
+      R(`${jid},"${name}","${name}","${name}"`);
+      R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
+      R(`${cId},${lId},${roomCol},${tId},"${'○'.repeat(Math.min(nSess, 8))}${'　'.repeat(Math.max(0, 8 - nSess))}                       "`);
+      R(String(perLines.length));
+      perLines.forEach(pl => R(pl));
     });
 
-    // ── J-CLASS / J-Room / J-Lesson / J-Teach (全ゼロ) ──
-    const zeroEntry = () => { R('0'); R('0,0,0,0'); R('0,0,0,0,0,0'); };
-    const slots = numDays * numPeriods;
-
-    R(`"J-CLASS:",${classList.length}`);
-    for (let c = 0; c <= classList.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
-
-    R(`"J-Room:",${classList.length}`);
-    for (let c = 0; c <= classList.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
-
-    R(`"J-Lesson:",${subjEntries.length}`);
-    for (let c = 0; c <= subjEntries.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
-
-    R(`"J-Teach:",${teachEntries.length}`);
-    for (let c = 0; c <= teachEntries.length; c++) for (let s = 0; s < slots; s++) zeroEntry();
+    // ── J-CLASS / J-Teach / J-Room: パディング格子 (numDays+1)×(numPeriods+1) に実配置を書く ──
+    const gridDays = numDays + 1, gridP = numPeriods + 1;
+    const emitJSection = (label, entityCount, cellsByEntity) => {
+      R(`"${label}:",${entityCount}`);
+      for (let e = 0; e <= entityCount; e++) {
+        const cellMap = {};
+        for (const rec of (cellsByEntity[e] || [])) {
+          const dn = dayNumOf(rec.day);
+          if (dn < 1 || rec.period < 1 || rec.period > numPeriods) continue;
+          (cellMap[dn + '#' + rec.period] || (cellMap[dn + '#' + rec.period] = [])).push(rec.jid);
+        }
+        for (let dayIdx = 0; dayIdx < gridDays; dayIdx++) {
+          for (let perIdx = 0; perIdx < gridP; perIdx++) {
+            const jids = (dayIdx >= 1 && perIdx >= 1) ? (cellMap[dayIdx + '#' + perIdx] || []) : [];
+            if (!jids.length) { R('0'); R('0,0,0,0'); R('0,0,0,0,0,0'); }
+            else {
+              R(String(jids.length));
+              R(String(jids.length));
+              jids.forEach(jid => R(`${jid},0,0,0,0,0`));
+              R('0,0,0,0');
+            }
+          }
+        }
+      }
+    };
+    emitJSection('J-CLASS', classList.length, jClassCells);
+    emitJSection('J-Teach', teachEntries.length, jTeachCells);
+    emitJSection('J-Room', roomList.length, jRoomCells);
 
     // ── Shift-JIS エンコード & ダウンロード ──
     const content = lines.join('\r\n');
@@ -1152,22 +1213,25 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // CSV フィールドパーサ（引用符対応）
     function parseLine(s) {
+      // 【A-3】標準的なCSV行パーサ。"" (引用符内の二重引用符=リテラルの")と
+      // 末尾の空フィールド(行末カンマ)に対応する。
       const fields = [];
-      let i = 0;
-      while (i < s.length) {
-        if (s[i] === '"') {
-          let end = s.indexOf('"', i + 1);
-          if (end === -1) end = s.length;
-          fields.push(s.slice(i + 1, end));
-          i = end + 1;
-          if (s[i] === ',') i++;
-        } else {
-          const comma = s.indexOf(',', i);
-          if (comma === -1) { fields.push(s.slice(i)); break; }
-          fields.push(s.slice(i, comma));
-          i = comma + 1;
+      let field = '', i = 0, inQ = false;
+      const n = s.length;
+      while (i < n) {
+        const c = s[i];
+        if (inQ) {
+          if (c === '"') {
+            if (s[i + 1] === '"') { field += '"'; i += 2; continue; } // "" → "
+            inQ = false; i++; continue;
+          }
+          field += c; i++; continue;
         }
+        if (c === '"') { inQ = true; i++; continue; }
+        if (c === ',') { fields.push(field); field = ''; i++; continue; }
+        field += c; i++;
       }
+      fields.push(field); // 末尾フィールド（行末カンマの空欄も含む）
       return fields;
     }
 
@@ -1332,7 +1396,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const f2 = parseLine(lines[idx + 1] || '');
         const id = parseInt(f1[0]);
         const name = f1[1] || '';
-        const abbr = f1[2] || name;
+        const abbr = f1[3] || f1[2] || name; // 【A-3】科目と同じ f1[3]||f1[2] にそろえる
         const dept = (f2[3] || '').replace(/科$/, '');
         const homeroom = (f2[4] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−ー－]/g, '-');
         // 可用性文字列から出勤不可コマを取得 ('90' = 非勤務)
@@ -1382,14 +1446,18 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         let jugyoSpan = 1;
         // 時限行 field0=曜日(1-5) field1=時限。授業本来の(曜日,時限)集合を確定スケジュールとする
         const schedKeys = new Set();
+        let unplacedLines = 0; // 【6】曜日0(未配置)の時限行の数
         for (let k = 0; k < weeklyCount; k++) {
           const pl = parseLine(lines[idx + 4 + k] || '');
           const st = parseInt(pl[3], 10), en = parseInt(pl[4], 10);
           if (!isNaN(st) && !isNaN(en) && en > st) jugyoSpan = Math.max(jugyoSpan, en - st + 1);
           const dnum = parseInt(pl[0], 10), pnum = parseInt(pl[1], 10);
           if (!isNaN(dnum) && dnum >= 1 && dnum <= numDays && !isNaN(pnum) && pnum >= 1) schedKeys.add(DAY_KEYS[dnum - 1] + '#' + pnum);
+          else if (dnum === 0) unplacedLines++;
         }
-        jugyoMeta[jid] = { classId, lessonId, weeklyCount, name: f1[1] || '', span: jugyoSpan, schedKeys };
+        const teacherIdHint = parseInt(f3[3]) || 0;
+        const roomIdHint = parseInt(f3[2]) || 0;
+        jugyoMeta[jid] = { classId, lessonId, weeklyCount, name: f1[1] || '', span: jugyoSpan, schedKeys, unplacedLines, teacherIdHint, roomIdHint };
         // 1エントリ = ヘッダ4行 + weeklyCount本の時限行。従来は固定5行でズレていた。
         idx += 4 + (weeklyCount > 0 ? weeklyCount : 0);
       }
@@ -1403,17 +1471,71 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
 
     // ── J-* 配置ブロック共通パーサ ──
-    // イデアは各エンティティ(クラス/教員/教室)ごとに固定グリッド
-    //   (numDays+1) 日ブロック × (numPeriods+1) 時限スロット
-    // を持ち、日index0・時限index0はパディング（実データは1始まり）。
-    // 従来は numDays×numPeriods を仮定してストリームがズレ、配置を取りこぼしていた。
-    // cb(entityIdx, jugyoId, dayKey, period) を各配置スロットで呼ぶ。
+    // イデアは各エンティティ(クラス/教員/教室)ごとに固定グリッド（日ブロック×時限スロット）を持つ。
+    // 日/時限のindex0はパディング（実データは1始まり）である場合が多い。
+    // 【A-2】従来は (numDays+1)×(numPeriods+1) を決め打ちしていたが、1つでもずれると
+    //   以降の配置が全てずれる。そこで「総マス数 ÷ (エンティティ数)」から1エンティティの
+    //   マス数を実測し、候補格子(曜日5〜8 × 時限6〜9, パディング有無)と照合して決める。
+    //   割り切れない/候補が無い場合は警告を出す。
+    const parseWarnings = _parseIdeaNativeIde._warnings = [];
+    const classCountHint = Object.keys(classes).length;
+    const teacherCountHint = Object.keys(teachers).length;
+    const roomCountHint = Object.keys(rooms).length;
+    const _geomCache = {};
+    function countJSlots(start, end) {
+      let idx = start + 1, total = 0;
+      while (idx < end) {
+        const first = (lines[idx] || '').trim().split(',')[0];
+        const slotCount = parseInt(first, 10);
+        if (isNaN(slotCount)) break;
+        if (slotCount === 0) idx += 3;
+        else { const ec = parseInt((lines[idx + 1] || '').split(',')[0], 10) || 0; idx += 2 + ec + 1; }
+        total++;
+      }
+      return total;
+    }
+    function solveJGeometry(sectionName, entityHint) {
+      if (_geomCache[sectionName]) return _geomCache[sectionName];
+      const res = { gridDays: numDays + 1, gridP: numPeriods + 1, padDay: true, padPeriod: true, ok: true, warn: null, total: 0, E: entityHint };
+      const start = sectionIdx[sectionName];
+      if (start == null) return (_geomCache[sectionName] = res);
+      const end = nextSectionLine(start);
+      const total = res.total = countJSlots(start, end);
+      const cands = [];
+      for (let gd = 5; gd <= 8; gd++) for (let gp = 6; gp <= 9; gp++) {
+        const per = gd * gp;
+        if (total === 0 || total % per !== 0) continue;
+        cands.push({ gridDays: gd, gridP: gp, E: total / per, padDay: gd > numDays, padPeriod: gp > numPeriods });
+      }
+      if (!cands.length) {
+        res.ok = false;
+        res.warn = sectionName + '：総マス数(' + total + ')が想定の格子に割り切れません。読込形式が想定と異なる可能性があります。';
+        return (_geomCache[sectionName] = res);
+      }
+      cands.sort((a, b) => {
+        const sc = (x) => Math.abs(x.E - entityHint) * 100 + Math.abs(x.gridDays - (numDays + 1)) * 10 + Math.abs(x.gridP - (numPeriods + 1));
+        return sc(a) - sc(b);
+      });
+      Object.assign(res, cands[0], { ok: true });
+      if (res.gridDays !== numDays + 1 || res.gridP !== numPeriods + 1) {
+        res.warn = sectionName + '：データから推定した格子 ' + res.gridDays + '×' + res.gridP +
+          ' がHEADの ' + (numDays + 1) + '×' + (numPeriods + 1) + ' と異なります（推定値を使用）。';
+      }
+      return (_geomCache[sectionName] = res);
+    }
     function walkJSection(sectionName, cb) {
       const start = sectionIdx[sectionName];
       if (start == null) return;
       const end = nextSectionLine(start);
-      const gridP = numPeriods + 1;              // 時限スロット数（padding込み）
-      const perEntity = (numDays + 1) * gridP;   // 1エンティティのスロット数
+      const hint = sectionName === 'J-CLASS' ? classCountHint
+        : sectionName === 'J-Teach' ? teacherCountHint
+          : sectionName === 'J-Room' ? roomCountHint : classCountHint;
+      const geom = solveJGeometry(sectionName, hint);
+      if (geom.warn && !parseWarnings.includes(geom.warn)) parseWarnings.push(geom.warn);
+      const gridP = geom.gridP;
+      const perEntity = geom.gridDays * geom.gridP;
+      const dayOffset = geom.padDay ? 1 : 0;
+      const perOffset = geom.padPeriod ? 1 : 0;
       let idx = start + 1, s = 0, ent = 0;
       while (idx < end) {
         const first = (lines[idx] || '').trim().split(',')[0];
@@ -1425,11 +1547,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           idx += 3;
         } else {
           const entryCount = parseInt((lines[idx + 1] || '').split(',')[0], 10) || 0;
-          if (dayIdx >= 1 && dayIdx <= numDays && perIdx >= 1 && perIdx <= numPeriods) {
+          const dayNum = dayIdx - dayOffset;   // 0始まりの曜日index
+          const perNum = perIdx - perOffset;   // 0始まりの時限index
+          if (dayNum >= 0 && dayNum < numDays && perNum >= 0 && perNum < numPeriods) {
             const seen = new Set();
             for (let e = 0; e < entryCount; e++) {
               const jugyoId = parseInt((lines[idx + 2 + e] || '').split(',')[0], 10) || 0;
-              if (jugyoId > 0 && !seen.has(jugyoId)) { seen.add(jugyoId); cb(ent, jugyoId, DAY_KEYS[dayIdx - 1], perIdx); }
+              if (jugyoId > 0 && !seen.has(jugyoId)) { seen.add(jugyoId); cb(ent, jugyoId, DAY_KEYS[dayNum], perNum + 1); }
             }
           }
           idx += 2 + entryCount + 1;
@@ -1502,7 +1626,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const subjName = lesson.name || jname;
       const subjAbbr = lesson.abbr || subjName;
       const dept = lesson.dept || '';
-      const teacherNames = jugyoToTeachers[jid] || [];
+      // 【6】一度も配置されていない授業は J-Teach に現れないため、JUGYO 4列目の教員IDで補う
+      let teacherNames = jugyoToTeachers[jid] || [];
+      if (!teacherNames.length && !(meta.schedKeys && meta.schedKeys.size) && meta.teacherIdHint && teachers[meta.teacherIdHint]?.name) {
+        teacherNames = [teachers[meta.teacherIdHint].name];
+      }
+      // 同様に、一度も配置されていない授業の教室は JUGYO 3列目の教室IDで補う
+      if (!(jugyoRooms[jid] || []).length && !(meta.schedKeys && meta.schedKeys.size) && meta.roomIdHint && rooms[meta.roomIdHint]?.name) {
+        jugyoRooms[jid] = [rooms[meta.roomIdHint].name];
+      }
       const tea = teacherNames.join(',');
       const teaAbbr = teacherNames.map(n => teacherAbbrByName[n] || n).join(',');
 
@@ -1511,13 +1643,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       // 連続コマの先頭のみを数えた「実セッション数」でitemを生成する
       // （そうしないと2連が2つの授業として重複生成され、片方が未配置で余る）。
       let sessionCount = weeklyCount;
-      if (span >= 2 && meta.schedKeys && meta.schedKeys.size) {
+      if (span >= 2) {
         sessionCount = 0;
-        for (const k of meta.schedKeys) {
+        for (const k of (meta.schedKeys || [])) {
           const hash = k.lastIndexOf('#');
           const d = k.slice(0, hash), pr = parseInt(k.slice(hash + 1), 10);
           if (!meta.schedKeys.has(d + '#' + (pr - 1))) sessionCount++; // 連続の先頭のみ
         }
+        // 【6】未配置(曜日0)の時限行は span 行で1コマ
+        sessionCount += Math.ceil((meta.unplacedLines || 0) / span);
         if (sessionCount < 1) sessionCount = 1;
       }
       jugyoItemIds[jid] = [];
@@ -1592,10 +1726,28 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const itemIds = jugyoItemIds[jid];
       if (!itemIds) continue;
       let instList = Object.values(inst);
-      // 2連コマは J-CLASS に連続2時限として現れる。開始時限だけ残して1配置に畳む
+      // 2連コマは J-CLASS に連続する時限として現れる。開始時限だけ残して1配置に畳む。
+      // 【A-3】従来は「前の時限があれば消す」だけだったため、1-2限と3-4限のように
+      // 2連が2つ続く場合に全体を1ブロックに潰していた。曜日ごとに連続時限をまとめ、
+      // span個ごとの先頭だけを残すことで、独立した複数の2連を正しく保持する。
       if (jugyoMeta[jid] && jugyoMeta[jid].span >= 2) {
-        const keySet = new Set(instList.map(r => r.day + '#' + r.period));
-        instList = instList.filter(r => !keySet.has(r.day + '#' + (r.period - 1)));
+        const span = jugyoMeta[jid].span;
+        const byDay = {};
+        for (const r of instList) (byDay[r.day] || (byDay[r.day] = [])).push(r);
+        const kept = [];
+        for (const day in byDay) {
+          const arr = byDay[day].sort((a, b) => a.period - b.period);
+          let runStart = null, prev = null;
+          for (const r of arr) {
+            if (prev !== null && r.period === prev + 1) {
+              if ((r.period - runStart) % span === 0) { kept.push(r); runStart = r.period; }
+            } else {
+              kept.push(r); runStart = r.period;
+            }
+            prev = r.period;
+          }
+        }
+        instList = kept;
       }
       instList.sort((a, b) =>
         DAY_KEYS.indexOf(a.day) - DAY_KEYS.indexOf(b.day) || a.period - b.period
@@ -1774,6 +1926,61 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
     }
 
+    // ── rawRows を最終itemから再構築し、item ID を reflect と一致させる ──
+    // 「データ登録 → 保存して作成画面へ」(reflectRawToItems)は rawRows から item を
+    // ${_id}__${k} 形式のIDで作り直す。読込時のIDと形式が違うと配置が対応付かず全消えするため、
+    // ここで最終itemを (科目/クラス/教員/教室/連続/同時展開) の署名でグループ化して行を作り、
+    // 各itemのIDを ${_id}__${k} に振り直しておく（合同授業や時限別担当は署名が異なるので自然に別行になる）。
+    {
+      const sigOf = (it) => JSON.stringify([
+        it.subj || '', (it.cls || []).slice().sort(), (it.teas || []).slice().sort(),
+        (it.rooms || []).slice().sort(), it.span || 1, !!it.simul, it.realSubj || ''
+      ]);
+      const groups = new Map();
+      for (const id of Object.keys(items)) {
+        const it = items[id]; if (!it) continue;
+        const s = sigOf(it);
+        let g = groups.get(s); if (!g) { g = { rep: it, ids: [] }; groups.set(s, g); }
+        g.ids.push(id);
+      }
+      const newItems = {}, newPlacements = {};
+      rawRows.length = 0;
+      let gi = 0;
+      for (const g of groups.values()) {
+        const rid = 'ide_' + (gi++);
+        const rep = g.rep;
+        const span = rep.span || 1;
+        let k = 0;
+        for (const oldId of g.ids) {
+          k++;
+          const nid = rid + '__' + k;
+          newItems[nid] = Object.assign({}, items[oldId], { id: nid, srcId: rid, countIdx: k });
+          if (placements[oldId]) newPlacements[nid] = placements[oldId];
+        }
+        const scfg = subjectCfg[rep.subj] || {};
+        rawRows.push({
+          _id: rid,
+          cls: (rep.cls || []).join(','),
+          subj: rep.subj,
+          subjAbbr: scfg.abbr || rep.subj,
+          dept: scfg.dept || '',
+          tea: (rep.teas || []).join(','),
+          teaAbbr: (rep.teas || []).map(n => teacherAbbrByName[n] || n).join(','),
+          room: (rep.rooms || []).join(','),
+          count: g.ids.length,
+          span,
+          dbl: span >= 2,
+          parallel: false,
+          simul: !!rep.simul,
+          realSubj: rep.realSubj || '',
+        });
+      }
+      for (const key of Object.keys(items)) delete items[key];
+      Object.assign(items, newItems);
+      for (const key of Object.keys(placements)) delete placements[key];
+      Object.assign(placements, newPlacements);
+    }
+
     // ── per-class 時限数（早帰り等）──
     // 完成時間割の実配置末尾から各クラス・各曜日の最終時限を求め、全体設定より短い場合のみ
     // classPeriodOverride に記録する。これにより授業の無い余分なコマがグレー表示になる
@@ -1786,7 +1993,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const it = items[id]; if (!it) continue;
         const span = it.span || 1;
         for (const c of (it.cls || [])) {
-          if (!/^\d+-\d+$/.test(c)) continue; // 通常クラスのみ（校務分掌G等は除外）
+          // 【A-3】通常クラスのみ対象（校務分掌G等は除外）。「3-1」に加え「1年1組」「1-A」等にも対応。
+          // クラス名は学年数字で始まる。校務分掌グループ(学務G/生徒会G等)は漢字始まりなので除外される。
+          if (!/^\d/.test(c) || /[GＧ]$/.test(c)) continue;
           const rec = lastFilled[c] || (lastFilled[c] = {});
           rec[pl.day] = Math.max(rec[pl.day] || 0, pl.period + span - 1);
         }
@@ -1799,7 +2008,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
     }
 
-    return { schoolName, periodsByDay, subjectCfg, teacherCfg, roomCfg, items, rawRows, placements, placedCount, classPeriodOverride };
+    // 【A-4】読込結果の自己検証用の診断情報
+    const KNOWN_SECTIONS = ['HEAD', 'CLASS', 'LESSON', 'TEACH', 'ROOM', 'JUGYO', 'J-CLASS', 'J-Teach', 'J-Room', 'SJYUGYO'];
+    const jGeom = _geomCache['J-CLASS'] || null;
+    const diag = {
+      classNames: [...new Set(Object.values(items).flatMap(it => it.cls || []))].sort((a, b) => a.localeCompare(b, 'ja')),
+      slotsPerClass: jGeom ? jGeom.gridDays * jGeom.gridP : null,
+      jGeom,
+      sectionsFound: Object.keys(sectionIdx),
+      sectionsSkipped: Object.keys(sectionIdx).filter(s => !KNOWN_SECTIONS.includes(s)),
+      warnings: parseWarnings.slice(),
+      totalItems: Object.keys(items).length,
+    };
+
+    return { schoolName, numDays, periodsByDay, subjectCfg, teacherCfg, roomCfg, items, rawRows, placements, placedCount, classPeriodOverride, diag };
   }
 
   async function importProjectFile(file) {
@@ -1847,13 +2069,58 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
            </label>`
         : '';
       let lockAll = false;
+      // 【A-4】読込結果の自己検証: 統計と例示ミニ時間割
+      const _diag = parsed.diag || {};
+      const _classNames = _diag.classNames || [];
+      const _slots = _diag.slotsPerClass;
+      const _jg = _diag.jGeom;
+      const _skipped = _diag.sectionsSkipped || [];
+      const _warns = _diag.warnings || [];
+      const _unplaced = Math.max(0, (_diag.totalItems || clsCount) - placedCount);
+      const _sampleClass = _classNames.find(c => /^\d/.test(c)) || _classNames[0] || '';
+      const buildMini = (cls) => {
+        if (!cls) return '';
+        const days = Object.keys(parsed.periodsByDay).filter(d => parsed.periodsByDay[d] > 0);
+        const maxP = Math.max(1, ...days.map(d => parsed.periodsByDay[d]));
+        const cellMap = {};
+        for (const [id, it] of Object.entries(parsed.items)) {
+          if (!(it.cls || []).includes(cls)) continue;
+          const pl = parsed.placements[id]; if (!pl || !pl.day) continue;
+          const ab = (parsed.subjectCfg[it.subj] && parsed.subjectCfg[it.subj].abbr) || it.subj;
+          for (let dp = 0; dp < (it.span || 1); dp++) cellMap[pl.day + '#' + (pl.period + dp)] = dp === 0 ? ab : '〃';
+        }
+        const th = 'border:1px solid #cbd5e1;padding:2px 6px;background:#f1f5f9';
+        const td = 'border:1px solid #cbd5e1;padding:2px 6px;text-align:center;min-width:38px';
+        let h = '<table style="border-collapse:collapse;font-size:11px;margin-top:4px"><tr><th style="' + th + '"></th>';
+        for (const d of days) h += '<th style="' + th + '">' + (DAYJP[d] || d) + '</th>';
+        h += '</tr>';
+        for (let p = 1; p <= maxP; p++) {
+          h += '<tr><th style="' + th + '">' + p + '</th>';
+          for (const d of days) h += '<td style="' + td + '">' + escapeHtml(cellMap[d + '#' + p] || '') + '</td>';
+          h += '</tr>';
+        }
+        return h + '</table>';
+      };
+      // 授業の実寸法（曜日数・最大時限）。マス数は読取格子(パディング込み)なので別途明記する。
+      const _numDays = parsed.numDays || Object.values(parsed.periodsByDay || {}).filter(v => v > 0).length;
+      const _maxPer = Math.max(0, ...Object.values(parsed.periodsByDay || {}).map(v => v || 0));
+      const statsHtml =
+        `<div style="margin-top:10px;padding:8px 10px;background:rgba(15,23,42,.04);border-radius:6px;line-height:1.7;font-size:13px">` +
+        `<div style="font-weight:700;margin-bottom:2px">読込内容の確認</div>` +
+        `<div>クラス数: ${_classNames.length}　授業曜日: ${_numDays}日　最大時限: ${_maxPer}限</div>` +
+        `<div>1クラスの読取マス数: ${_slots || '不明'}${_jg ? `（内部格子 ${_jg.gridDays}×${_jg.gridP}＝余白1列/1行込み）` : ''}</div>` +
+        `<div>配置できたコマ: <strong>${placedCount}</strong>　配置できなかったコマ: <strong>${_unplaced}</strong></div>` +
+        (_skipped.length ? `<div>読み飛ばしたセクション: ${escapeHtml(_skipped.join(', '))}</div>` : `<div>読み飛ばしたセクション: なし</div>`) +
+        (_warns.length ? `<div style="color:#b45309;margin-top:4px">⚠ ${_warns.map(escapeHtml).join('<br>⚠ ')}</div>` : '') +
+        `</div>` +
+        (_sampleClass ? `<div style="margin-top:8px;font-size:13px"><div class="muted small">例: クラス <strong>${escapeHtml(_sampleClass)}</strong> の時間割（イデアの画面と見比べてください）</div>${buildMini(_sampleClass)}</div>` : '');
       showModalHTML(
         'イデアファイル読込',
         `<div style="white-space:pre-wrap;line-height:1.6">` +
         escapeHtml(`イデアのAI時間割ファイル「${file.name}」を読み込みます。\n\n` +
           `  教員: ${teaCount}名　教科: ${subCount}科目　授業コマ: ${clsCount}コマ\n` +
           `${teaNote}\n${placeNote}\n\n${qualityNote}\n\n現在の作業内容はすべて上書きされます。`) +
-        `</div>` + lockOpt,
+        `</div>` + statsHtml + lockOpt,
         () => {
           pushHistory('ideaImport');
           state.rawRows = parsed.rawRows;
@@ -1864,8 +2131,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           // 固定として取込: 全配置をロック
           if (lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
           state.snapshots = [];
-          // 曜日ごとの時限数（可用性文字列から正確に取得）
-          if (parsed.periodsByDay) Object.assign(state.settings.periodsByDay, parsed.periodsByDay);
+          // 【A-3】学校名を反映
+          if (parsed.schoolName) state.settings.schoolName = parsed.schoolName;
+          // 【A-3】土曜(6日制)等に対応: 読込ファイルの曜日数だけ表示曜日を伸縮
+          if (parsed.numDays) setActiveDayCount(parsed.numDays);
+          // 【A-3】曜日ごとの時限数。ファイルに無い曜日は0(非表示)にする（Object.assignの上書き残りを防ぐ）
+          if (parsed.periodsByDay) {
+            for (const d in state.settings.periodsByDay) state.settings.periodsByDay[d] = 0;
+            Object.assign(state.settings.periodsByDay, parsed.periodsByDay);
+          }
           // 教室マスタ（classmatch に roomCfg があれば格納）
           if (parsed.roomCfg) state.roomCfg = parsed.roomCfg;
           // per-class 時限数（早帰り等で授業の無い余分なコマをグレー表示）
@@ -2205,7 +2479,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const teas = splitList(r.tea);
       const teaKey = teas.join(',') || ''; // multi teacher group
       const rooms = splitList(r.room);
-      const span = r.dbl ? 2 : 1;
+      // span は 3連以上も保持（r.span 優先、無ければ dbl から）
+      const span = Math.max(1, parseInt(r.span, 10) || (r.dbl ? 2 : 1) || 1);
       const parallel = !!r.parallel;
       const count = Math.max(1, parseInt(r.count || 1, 10) || 1);
       for (let k = 1; k <= count; k++) {
@@ -2220,6 +2495,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           locked: !!(placementsOld[id] && placementsOld[id].locked),
           countIdx: k
         };
+        // 読込由来の同時展開/相乗り表示情報を保持
+        if (r.simul) items[id].simul = true;
+        if (r.realSubj) items[id].realSubj = r.realSubj;
         if (placementsOld[id] && placementsOld[id].day) {
           newPlacements[id] = placementsOld[id];
         } else {
@@ -2264,7 +2542,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const plc = state.placements[id];
     if (!plc) return false;
     const span = state.items[id]?.span || 1;
-    return (span === 2 && plc.day === day && period === plc.period + 1);
+    // 【C-6】3連以上(span>=3)も継続コマとして扱う（従来はspan===2のみ）
+    return (span >= 2 && plc.day === day && period > plc.period && period < plc.period + span);
   }
 
   function teacherDailyMax(tea) {
@@ -3796,6 +4075,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   ======================= */
   function switchTab(tab) {
     state.tab = tab;
+    // 【7】現在のタブを body に記録（作成画面以外では下の操作バーを隠すため）
+    document.body.dataset.tab = tab;
     $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach(v => v.style.display = 'none');
     $('#view-' + tab).style.display = 'flex';
@@ -4671,6 +4952,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     wrap.style.setProperty('--subAdj', (fs * 1) + 'px');
     wrap.style.setProperty('--metaAdj', (fs * 1) + 'px');
     wrap.style.setProperty('--tdhAdj', (cs * 4) + 'px');
+    // 【B-1】文字を大きくしたらコマ幅(テーブル最小幅)も広げる（切れ防止・見出し固定でスクロール）
+    wrap.style.setProperty('--tableAdj', (fs * 90) + 'px');
+    // 【1/2】時限の総数（列数）。CSSで「列数×文字サイズ由来の最小幅」をテーブル最小幅にする
+    try { wrap.style.setProperty('--ncols', String(activeDays().reduce((n, d) => n + maxPeriod(d), 0) || 30)); } catch (e) { }
     const fsl = $('#font-step-label'); if (fsl) fsl.textContent = `±${fs}`;
     const csl = $('#cell-step-label'); if (csl) csl.textContent = `±${cs}`;
 
@@ -5175,6 +5460,44 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return uniq(msgs).slice(0, 6).join(' / ');
   }
 
+  // 【UI】コマ表示用の短い科目名。略称が未設定/長すぎる場合に自動で短縮する。
+  function displayAbbr(it, scfg) {
+    let a = String((scfg && scfg.abbr) || it.subj || it.subjKey || '').trim();
+    const MAP = { '総合的な探究の時間': '総探', '総合的な学習の時間': '総学', 'ロングホームルーム': 'LHR', 'ホームルーム': 'HR' };
+    if (MAP[a]) return MAP[a];
+    a = a.replace(/[（(]([^）)]*)[）)]/g, '$1'); // 自選(月) → 自選月
+    a = a.replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    if (a.length > 5 && !(scfg && scfg.abbr && scfg.abbr.length <= 5)) a = a.slice(0, 4);
+    return a;
+  }
+  // 【UI】合同クラスの表記を圧縮（3クラス以上は「1-8 他2」）
+  function compactClsLabel(cls) {
+    const a = (cls || []).filter(Boolean);
+    if (a.length <= 2) return a.join(',');
+    return a[0] + ' 他' + (a.length - 1);
+  }
+  // 【UI】連動グループ: 一緒に動く／同時に開講されるコマ
+  //   同一コマ(合同で複数行に出る) / 並列設定コマ / 同時展開(自選等)ブロックの同時限コマ
+  function linkedGroupIds(id) {
+    const it = state.items[id]; const plc = state.placements[id];
+    const out = new Set([id]);
+    if (!it || !plc || !plc.day) return out;
+    for (const oid in state.items) {
+      if (oid === id) continue;
+      const o = state.items[oid]; const op = state.placements[oid];
+      if (!o || !op || op.day !== plc.day || op.period !== plc.period) continue;
+      if ((it.parallel && o.parallel) || (it.simul && o.simul && o.subj === it.subj)) out.add(oid);
+    }
+    return out;
+  }
+  function linkKindChips(it) {
+    const chips = [];
+    if ((it.cls || []).length > 1) chips.push(['合', 'c-gou', '合同授業: ' + it.cls.join(',')]);
+    if (it.simul) chips.push(['同', 'c-simul', '同時展開' + (it.realSubj ? '：' + it.realSubj : '')]);
+    if (it.parallel) chips.push(['並', 'c-par', '並列（同時に開講）']);
+    return chips;
+  }
+
   function renderLessonCard(id, mode, rowKey, isCont = false) {
     const it = state.items[id];
     const plc = state.placements[id];
@@ -5182,7 +5505,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     const scfg = state.subjectCfg[it.subjKey] || {};
     const color = getItemDisplayColor(id);
-    const abbr = (scfg.abbr || it.subj || '').trim();
+    const abbr = displayAbbr(it, scfg);
 
     const teaLabel = (it.teas||[]).map(t => state.teacherCfg[t]?.abbr || normalizeAbbr(t, 12) || t).join(',');
     const clsLabel = (it.cls||[]).join(',');
@@ -5195,11 +5518,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       el.dataset.id = id;
       el.draggable = true;
       el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
-      const contLabel = mode === 'teacher' ? (it.cls[0] || '') : (abbr || '');
-      // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
-      el.style.background = color;
-      el.style.color = isDark(color) ? 'rgba(255,255,255,.75)' : 'rgba(15,23,42,.6)';
-      el.innerHTML = `<div class="l1"><div class="subj">↓ ${escapeHtml(contLabel)}</div></div>`;
+      const contLabel = (mode === 'teacher' || mode === 'room') ? compactClsLabel(it.cls) : (abbr || '');
+      const contHtml = (mode === 'teacher' || mode === 'room')
+        ? contLabel.split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>')
+        : escapeHtml(contLabel);
+      // 【B-3/B-4】2連の2コマ目も淡背景＋色帯にし、科目名を表示（従来は「↓」だけで薄かった）
+      el.style.background = paleColor(color);
+      el.style.color = '#0f172a';
+      el.style.borderLeft = '4px solid ' + color;
+      el.innerHTML = `<div class="l1"><div class="subj">${contHtml}</div><span class="cont-mark" title="前のコマからの続き">⤵</span></div>`;
       el.ondragstart = (ev) => {
         window._currentDragId = id;
         window._dragPending = true;
@@ -5227,7 +5554,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     if (mode === 'teacher') {
       // Teacher axis: show class on 1st row, subject on 2nd row (readable)
-      mainText = (it.cls && it.cls.length) ? it.cls.join(',') : '(未)';
+      mainText = (it.cls && it.cls.length) ? compactClsLabel(it.cls) : '(未)';
       subText = ''; // avoid tiny right label
       showSecondRow = true;
       footText = (abbr || it.subjKey || it.subj || '').toString();
@@ -5237,7 +5564,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (teaLabel) { footText = teaLabel; showSecondRow = true; }
     } else if (mode === 'room') {
       // 教室窓: クラス名（全体表示）+ 科目略称 + 教員略称
-      mainText = (it.cls && it.cls.length) ? it.cls.join(',') : '(未)';
+      mainText = (it.cls && it.cls.length) ? compactClsLabel(it.cls) : '(未)';
       subText = abbr;
       footText = teaLabel;
       showSecondRow = !!(footText);
@@ -5256,21 +5583,29 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     el.draggable = true;
     el.dataset.id = id;
     el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
+    // 【UI】選択中コマの連動グループ（合同の別行表示・並列・同時展開）を常時強調
+    try { const sid = state.ui.selectedId; if (sid && sid !== id && linkedGroupIds(sid).has(id)) el.classList.add('linked-hl'); if (sid === id && (linkedGroupIds(id).size > 1 || (it.cls || []).length > 1)) el.classList.add('linked-root'); } catch (e) { }
     // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
-    el.style.background = color;
-    el.style.color = isDark(color) ? '#fff' : '#0f172a';
+    // 【B-3】淡い背景＋濃い文字＋左端の色帯（科目色分けは色帯で維持、文字はコントラスト比4.5以上）
+    el.style.background = paleColor(color);
+    el.style.color = '#0f172a';
+    el.style.borderLeft = '4px solid ' + color;
 
+    // 【1】クラス名・教員名は1つずつ折り返し禁止の単位にし、カンマの後だけで改行させる
+    const nbJoin = (txt) => String(txt || '').split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>');
     el.innerHTML = `
     <div class="l1">
-      <div class="subj">${escapeHtml(mainText)}</div>
-      ${it.span === 2 ? '<span class="badge2">2連</span>' : ''}
-      ${it.simul ? `<span class="badge-simul" title="同時展開（相乗り）${it.realSubj ? '：' + escapeHtml(it.realSubj) : ''}">同</span>` : ''}
-      ${vio ? '<span class="vio-badge" title="' + escapeHtml(vio) + '">⚠</span>' : ''}
+      <div class="subj${String(mainText).length >= 3 ? ' long' : ''}${String(mainText).length >= 5 ? ' xlong' : ''}">${(mode === 'teacher' || mode === 'room') ? nbJoin(mainText) : escapeHtml(mainText)}</div>
       ${(mode === 'room' || mode === 'teacher') && subText ? `<div class="rightlab">${escapeHtml(mode === 'room' ? subText.slice(0, 6) : subText.slice(0, 4))}</div>` : ``}
+    </div>
+    <div class="lchips">
+      ${linkKindChips(it).map(([t, c, tip]) => `<span class="lchip ${c}" title="${escapeAttr(tip)}">${t}</span>`).join('')}
+      ${(it.span || 1) >= 2 ? `<span class="lchip c-span" title="${it.span}コマ連続">${it.span}</span>` : ''}
+      ${vio ? '<span class="lchip c-vio" title="' + escapeAttr(vio) + '">!</span>' : ''}
     </div>
     ${showSecondRow ? `
       <div class="l2">
-        <div class="teacher">${escapeHtml(footText || '')}</div>
+        <div class="teacher">${mode === 'class' ? nbJoin(footText) : escapeHtml(footText || '')}</div>
         ${mode === 'teacher' && roomLabel ? `<div class="roommini">${escapeHtml(roomLabel)}</div>` : ''}
       </div>
     ` : ``}
@@ -5356,11 +5691,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         (idx.cls?.[cls]?.[d]?.[p] || []).forEach(x => { if (x !== id) relIds.add(x); });
       }
     }
+    // 連動グループ（同じコマの別行表示・並列・同時展開）は強調表示
+    const linked = linkedGroupIds(id);
     // DOM要素に関連クラスを付与
     document.querySelectorAll('.lesson[data-id]').forEach(el2 => {
       const eid = el2.dataset.id;
       if (!eid) return;
-      if (on && relIds.has(eid)) el2.classList.add('related-highlight');
+      const isLinked = on && (linked.has(eid) && !(eid === id && el2.matches(':hover')));
+      el2.classList.toggle('linked-hover', !!isLinked);
+      if (on && relIds.has(eid) && !linked.has(eid)) el2.classList.add('related-highlight');
       else el2.classList.remove('related-highlight');
     });
     // 在庫アイテムにも
@@ -6648,6 +6987,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
   function renderProp() {
     const box = $('#prop-body'); if (!box) return;
+    // 【C-3】何も選択していない時はプロパティ欄を細く畳み、時間割の表示面積を最大化する
+    const panel = $('#prop-panel');
+    if (panel) panel.classList.toggle('collapsed', !!state.ui.propOn && !state.ui.selectedId);
     if (!state.ui.propOn) { box.innerHTML = ''; return; }
     const id = state.ui.selectedId;
     if (!id) {
@@ -7809,6 +8151,63 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
    * validatePlacement を全コマに対して実行し、
    * 警告・ブロックの少ない提案を高く評価する。
    */
+  // 【提案精度】配置のソフト制約ペナルティ（小さいほど良い）。
+  // 同科目を同じ日に重ねない／同じ教科を隣り合わせにしない、という“良い時間割”の観点を数値化する。
+  // 現在の配置indexを参照するため、chainQualityScore（一時適用）からも空き枠/入替（現状態での仮配置）からも使える。
+  function softPlacementPenalty(id, day, period) {
+    const it = state.items[id]; if (!it) return 0;
+    const idx = buildIndex();
+    const span = it.span || 1;
+    const scfg = state.subjectCfg[it.subjKey] || {};
+    const myDept = scfg.dept || '';
+    const maxP = maxPeriod(day);
+    let pen = 0;
+    for (const c of (it.cls || [])) {
+      const dayIdx = idx.cls?.[c]?.[day] || {};
+      // 同科目が同じ日に既にあるか（自分・継続コマは除く）
+      let sameSubjSameDay = 0;
+      for (const p in dayIdx) {
+        for (const oid of (dayIdx[p] || [])) {
+          if (oid === id) continue;
+          if (isSpanFill(oid, day, Number(p))) continue;
+          if (state.items[oid]?.subjKey === it.subjKey) sameSubjSameDay++;
+        }
+      }
+      if (sameSubjSameDay > 0) pen += sameSubjSameDay * (scfg.noSameDay ? 24 : 10);
+      // 同じ教科が左右に隣接するか
+      if (myDept) {
+        const neigh = [];
+        if (period - 1 >= 1) neigh.push(period - 1);
+        if (period + span <= maxP) neigh.push(period + span);
+        for (const np of neigh) {
+          const nid = (dayIdx[np] || []).find(x => x !== id && !isSpanFill(x, day, np));
+          if (nid && (state.subjectCfg[state.items[nid]?.subjKey]?.dept || '') === myDept) {
+            pen += (scfg.noConsec ? 10 : 4);
+          }
+        }
+      }
+    }
+    // 教員の中抜け（授業→空き→授業）を増やす配置を避ける
+    const lunchAfter = Number(state.settings.lunchAfter || 0);
+    for (const t of (it.teas || [])) {
+      const tday = idx.tea?.[t]?.[day] || {};
+      const set = new Set();
+      for (const p in tday) for (const oid of (tday[p] || [])) { if (oid !== id) set.add(Number(p)); }
+      for (let dp = 0; dp < span; dp++) set.add(period + dp);
+      if (set.size >= 2) {
+        const arr = [...set].sort((a, b) => a - b);
+        let holes = 0;
+        for (let pp = arr[0] + 1; pp < arr[arr.length - 1]; pp++) {
+          if (set.has(pp)) continue;
+          if (lunchAfter && pp === lunchAfter + 1) continue; // 昼休み直後の空きは中抜けと見なさない
+          holes++;
+        }
+        pen += holes * 3;
+      }
+    }
+    return pen;
+  }
+
   function chainQualityScore(moves) {
     if (!moves || !moves.length) return 0;
     return puzWithTempMoves(moves, () => {
@@ -7823,6 +8222,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           for (const tea of (it.teas || [])) score -= teacherDayCount(tea, m.day) * 2;
         }
         score += m.period <= 3 ? 3 : 0;
+        // 【提案精度】同科目の同日重複・教科の連続を加味
+        score -= softPlacementPenalty(m.id, m.day, m.period);
       }
       return score;
     });
@@ -8064,6 +8465,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
   function computeSuggestionPack(id) {
     const deep = !!(window && window.__SUG_DEEP);
+    // 提案一式で共有する総時間予算。多数のpuzSearch呼び出しの合計を抑えてポップアップの固まりを防ぐ。
+    // 深読みONのときは少し長めに許容する。
+    try { window.__PUZ_GLOBAL_DEADLINE = Date.now() + (deep ? 2500 : 1100); } catch (e) { }
     const safeCompute = (fn, label) => {
       try {
         return fn() || [];
@@ -8118,6 +8522,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       lns: lnsRaw,
       force: filterSame(safeCompute(() => computeForceSuggestions(id), '強制')),
     };
+
+    // 総予算をクリア（残すと後続の単発puzSearchが即中断してしまう）
+    try { window.__PUZ_GLOBAL_DEADLINE = 0; } catch (e) { }
 
     // タブ順に重複排除（先に出たタブ優先）
     return {
@@ -8265,6 +8672,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         score -= v.warns.length * 8;
         if (v.warns.length) reason.push('警告:' + v.warns.join(','));
         score += (p <= 2) ? 3 : 0;
+        // 【提案精度】同科目の同日重複・教科の連続を加味して、より良い枠を上位にする
+        const soft = softPlacementPenalty(id, day, p);
+        score -= soft;
+        if (soft >= 10) reason.push('同科目が同じ日/教科が連続');
         out.push({ title: `空き: ${DAYJP[day]}${p}`, score, reason, moves: [{ id, day, period: p, span: it.span || 1 }] });
       }
     }
@@ -8315,11 +8726,14 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       ];
       const sim = simulateMoves(moves);
       if (!sim.ok) continue;
-      const score = 80 - (sim.errors.length * 10);
-      out.push({ title: `入替: ${DAYJP[po.day]}${po.period} ↔ ${DAYJP[plc.day]}${plc.period}`, score, reason: [`相手:${ito.subjKey}`], moves });
-      if (out.length >= 14) break;
+      // 【提案精度】衝突ゼロの入替を一律80点にせず、入替後の良さ（同科目重複/教科連続/教員負荷）で差を付ける
+      const score = 80 + chainQualityScore(moves);
+      out.push({ title: `入替: ${DAYJP[po.day]}${po.period} ↔ ${DAYJP[plc.day]}${plc.period}`, score: Math.round(score), reason: [`相手:${ito.subjKey}`], moves });
+      if (out.length >= 60) break; // 収集上限（この後スコア順に絞る）
     }
-    return out;
+    // 【提案精度】良い入替を上位に（衝突ゼロのものを品質順に並べて上位のみ返す）
+    out.sort((a, b) => b.score - a.score);
+    return out.slice(0, 14);
   }
   function computeCycleSuggestions(id) {
     const it = state.items[id]; const plc = state.placements[id];
@@ -8541,12 +8955,30 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
 
+  // 【7】吹き出しはマウスを少し止めてから表示し、カーソルから離して出す（周りのコマを隠しにくく）。
+  //   クリック（選択）したらすぐ消す（詳細はプロパティ欄に出るため）。
+  let _hoverTipTimer = null, _hoverTipPending = null;
   function showHoverTip(text, x, y) {
     const tip = document.getElementById('hover-tip');
     if (!tip) return;
+    if (tip.style.display !== 'block' || tip.textContent !== text) {
+      _hoverTipPending = { text, x, y };
+      if (tip.style.display === 'block') tip.style.display = 'none';
+      clearTimeout(_hoverTipTimer);
+      _hoverTipTimer = setTimeout(() => {
+        const pnd = _hoverTipPending; _hoverTipPending = null;
+        if (pnd) _placeHoverTip(tip, pnd.text, pnd.x, pnd.y);
+      }, 450);
+      return;
+    }
+    _placeHoverTip(tip, text, x, y);
+  }
+  document.addEventListener('mousemove', (ev) => { if (_hoverTipPending) { _hoverTipPending.x = ev.clientX; _hoverTipPending.y = ev.clientY; } }, true);
+  document.addEventListener('mousedown', () => hideHoverTip(), true);
+  function _placeHoverTip(tip, text, x, y) {
     tip.textContent = text;
     tip.style.display = 'block';
-    const pad = 14;
+    const pad = 22;
     const vw = window.innerWidth, vh = window.innerHeight;
 
     // measure after display
@@ -8560,6 +8992,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     tip.style.top = Math.max(6, top) + 'px';
   }
   function hideHoverTip() {
+    clearTimeout(_hoverTipTimer); _hoverTipPending = null;
     const tip = document.getElementById('hover-tip');
     if (tip) tip.style.display = 'none';
   }
@@ -8636,20 +9069,27 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const start = hasHeader ? 1 : 0;
     const idx = (name) => header.indexOf(name);
     const get = (arr, i) => (i >= 0 && i < arr.length) ? arr[i] : '';
+    // 【C-5】見出しがある列は、その見出し位置の値だけを使う（空欄でも別列の値を拾わない）。
+    // 見出しが無い(位置指定)ファイルのみ、既定の列位置(0〜8)を使う。
+    const col = (a, name, pos) => {
+      const i = idx(name);
+      if (i >= 0) return get(a, i);          // 見出しあり → その列のみ
+      return hasHeader ? '' : get(a, pos);   // 見出しはあるがこの列名が無い場合は空。無ければ位置で取得
+    };
     pushHistory('csvImport');
     for (let r = start; r < rows.length; r++) {
       const a = rows[r];
       const row = {
         _id: null,
-        cls: get(a, idx('クラス')) || get(a, 0),
-        subj: get(a, idx('科目')) || get(a, 1),
-        subjAbbr: get(a, idx('科目略')) || get(a, 2),
-        dept: get(a, idx('教科')) || get(a, 3),
-        tea: get(a, idx('教員')) || get(a, 4),
-        teaAbbr: get(a, idx('教員略')) || get(a, 5),
-        room: get(a, idx('教室')) || get(a, 6),
-        count: parseInt(get(a, idx('コマ数')) || get(a, 7) || '1', 10) || 1,
-        dbl: String(get(a, idx('2連')) || get(a, 8) || '').trim() === '1' || String(get(a, idx('2連')) || '').toLowerCase() === 'true'
+        cls: col(a, 'クラス', 0),
+        subj: col(a, '科目', 1),
+        subjAbbr: col(a, '科目略', 2),
+        dept: col(a, '教科', 3),
+        tea: col(a, '教員', 4),
+        teaAbbr: col(a, '教員略', 5),
+        room: col(a, '教室', 6),
+        count: parseInt(col(a, 'コマ数', 7) || '1', 10) || 1,
+        dbl: (() => { const v = String(col(a, '2連', 8) || '').trim().toLowerCase(); return v === '1' || v === 'true'; })()
       };
       ensureRowId(row);
       state.rawRows.push(row);
@@ -9035,7 +9475,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const ids = (kind === 'class'
           ? (idx.cls?.[key]?.[d]?.[p] || [])
           : (idx.tea?.[key]?.[d]?.[p] || [])
-        ).filter(id => !isSpanFill(id, d, p));
+        ); // 【4】2連の2コマ目も出力（従来は空欄）
         if (!ids.length) return;
         const it = state.items[ids[0]];
         if (!it) return;
@@ -12576,7 +13016,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
   function isSpanFill(id,day,p){
     const plc=data.placements[id]; const it=data.items[id];
-    return plc && it && it.span===2 && plc.day===day && p===plc.period+1;
+    // 【C-6】3連以上も継続コマとして扱う
+    return plc && it && (it.span||1)>=2 && plc.day===day && p>plc.period && p<plc.period+(it.span||1);
   }
   let __idxCache = null;
 function invalidateIndex(){ __idxCache = null; }
@@ -13442,7 +13883,8 @@ function buildIndex(){
       html += `<tr><th style="${hStyle}">${p}</th>`;
       for (const d of DAYS) {
         if (p > maxPeriod(d)) { html += `<td class="forbidden"></td>`; continue; }
-        const ids = idsInCellForRow(kind, key, d, p, idx).filter(id => !isSpanFill(id, d, p));
+        // 【4】2連の2コマ目も同じ授業を印刷する（従来は isSpanFill で除外され空欄になっていた）
+        const ids = idsInCellForRow(kind, key, d, p, idx);
         if (!ids.length) { html += `<td style="${cellStyle}"></td>`; continue; }
         const lines = ids.map(id => {
           const it = state.items[id];
@@ -15288,7 +15730,8 @@ function buildIndex(){
         for (let p = 1; p <= maxP; p++) {
           const overMaxP = p > maxPeriod(day);
           if (overMaxP) { html += `<td class="forbidden" style="height:${rowH}px;width:${colW}px;min-width:${colW}px"></td>`; continue; }
-          const ids = idsInCellForRow(kind, key, day, p, idx).filter(id => !isSpanFill(id, day, p));
+          // 【4】2連の2コマ目も同じ授業を印刷する
+          const ids = idsInCellForRow(kind, key, day, p, idx);
           if (!ids.length) { html += `<td style="height:${rowH}px;width:${colW}px;min-width:${colW}px"></td>`; continue; }
           const cells = ids.map(id => {
             const it = state.items[id]; if (!it) return '';
@@ -15441,7 +15884,7 @@ function buildIndex(){
         window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
       };
     }
-    if (splitV && stock) dragV(splitV, stock, 'width', 280, 720);
+    if (splitV && stock) dragV(splitV, stock, 'width', 180, 720);
     if (splitP && prop) dragV(splitP, prop, 'width', 260, 620);
 
     if (splitTop) {
@@ -16788,8 +17231,12 @@ function buildIndex(){
       Object.assign(window, {
         buildIndex, clampInt, deepClone, flash, isSpanFill,
         teacherDailyMax, teacherConsecMax, teacherDayCount,
-        chainQualityScore, clearValidSlots, simulateMoves,
-        normalizeAbbr, showModal, showModalHTML
+        chainQualityScore, softPlacementPenalty, clearValidSlots, simulateMoves,
+        normalizeAbbr, showModal, showModalHTML,
+        // トップレベルのパズル/連鎖探索(puzSearch等)が素の識別子で参照するIIFE内定数/関数。
+        // これらが未公開だと puzSearch が「DAYS is not defined」でクラッシュし、
+        // 連動・三角トレード・パズル(多手先読み)提案が全て無言で0件になる。
+        DAYS, DAYJP, maxPeriod, maxPeriodForItem
       });
     } catch (e) { }
   }
@@ -16913,7 +17360,10 @@ function puzCandidateSlots(id, baseMovesArr) {
         const idx = buildIndex();
         const v = validatePlacement(id, day, p, 'safe', null) || { blocks: ['不明'], warns: [] };
         const blockers = puzBlockerIdsFromIdx(it, id, day, p, idx);
-        return { v, blockers };
+        // 連鎖の移動先も「同科目の同日重複・教科連続・教員の中抜け」を避ける（上手くハマる手を優先）
+        let soft = 0;
+        try { if (typeof softPlacementPenalty === 'function') soft = softPlacementPenalty(id, day, p); } catch (e) { }
+        return { v, blockers, soft };
       });
 
       const blocks = info.v.blocks || [];
@@ -16938,6 +17388,9 @@ function puzCandidateSlots(id, baseMovesArr) {
       // v49+: ブロッカーが0（空き枠）は大幅ボーナス（在庫不使用の積極誘導）
       if (blockers.length === 0) score += 25;
 
+      // 連鎖の質（上手くハマる手）を優先
+      score -= (info.soft || 0);
+
       out.push({ day, p, score, blockersN: blockers.length });
     }
   }
@@ -16952,6 +17405,14 @@ function puzSearch(targetId, targetDay, targetP) {
 
   let visits = 0;
   const seen = new Set();
+  // 実時間の締切。満杯の時間割では候補評価ごとに全コマのindexを作り直すため探索が重く、
+  // visits 上限だけでは長時間ブロックし得る。締切を超えたら中断フラグで全dfsを即座に畳む。
+  const __puzStart = Date.now();
+  const __PUZ_DEADLINE = (typeof window !== 'undefined' && window.__PUZ_DEADLINE_MS) || 100;
+  // 1回のpuzSearchの締切に加え、提案一式(computeSuggestionPack)全体で共有する総締切も尊重する。
+  // これにより多数のpuzSearch呼び出しの合計時間が膨らんでポップアップが固まるのを防ぐ。
+  const __PUZ_GLOBAL = (typeof window !== 'undefined' && window.__PUZ_GLOBAL_DEADLINE) || 0;
+  let __puzAborted = false;
 
   function keyOf(moveById) {
     const ent = Object.values(moveById)
@@ -16972,8 +17433,11 @@ function puzSearch(targetId, targetDay, targetP) {
   }
 
   function dfs(moveById) {
+    if (__puzAborted) return null; // 締切超過後は全探索を即座に畳む
     visits++;
     if (visits > PUZ_CFG.MAX_VISITS) return null;
+    const now = Date.now();
+    if (now - __puzStart > __PUZ_DEADLINE || (__PUZ_GLOBAL && now > __PUZ_GLOBAL)) { __puzAborted = true; return null; }
     if (Object.keys(moveById).length > PUZ_CFG.MAX_INVOLVED) return null;
 
     const moves = Object.values(moveById);
