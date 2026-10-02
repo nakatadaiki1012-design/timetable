@@ -8105,6 +8105,45 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
    * validatePlacement を全コマに対して実行し、
    * 警告・ブロックの少ない提案を高く評価する。
    */
+  // 【提案精度】配置のソフト制約ペナルティ（小さいほど良い）。
+  // 同科目を同じ日に重ねない／同じ教科を隣り合わせにしない、という“良い時間割”の観点を数値化する。
+  // 現在の配置indexを参照するため、chainQualityScore（一時適用）からも空き枠/入替（現状態での仮配置）からも使える。
+  function softPlacementPenalty(id, day, period) {
+    const it = state.items[id]; if (!it) return 0;
+    const idx = buildIndex();
+    const span = it.span || 1;
+    const scfg = state.subjectCfg[it.subjKey] || {};
+    const myDept = scfg.dept || '';
+    const maxP = maxPeriod(day);
+    let pen = 0;
+    for (const c of (it.cls || [])) {
+      const dayIdx = idx.cls?.[c]?.[day] || {};
+      // 同科目が同じ日に既にあるか（自分・継続コマは除く）
+      let sameSubjSameDay = 0;
+      for (const p in dayIdx) {
+        for (const oid of (dayIdx[p] || [])) {
+          if (oid === id) continue;
+          if (isSpanFill(oid, day, Number(p))) continue;
+          if (state.items[oid]?.subjKey === it.subjKey) sameSubjSameDay++;
+        }
+      }
+      if (sameSubjSameDay > 0) pen += sameSubjSameDay * (scfg.noSameDay ? 24 : 10);
+      // 同じ教科が左右に隣接するか
+      if (myDept) {
+        const neigh = [];
+        if (period - 1 >= 1) neigh.push(period - 1);
+        if (period + span <= maxP) neigh.push(period + span);
+        for (const np of neigh) {
+          const nid = (dayIdx[np] || []).find(x => x !== id && !isSpanFill(x, day, np));
+          if (nid && (state.subjectCfg[state.items[nid]?.subjKey]?.dept || '') === myDept) {
+            pen += (scfg.noConsec ? 10 : 4);
+          }
+        }
+      }
+    }
+    return pen;
+  }
+
   function chainQualityScore(moves) {
     if (!moves || !moves.length) return 0;
     return puzWithTempMoves(moves, () => {
@@ -8119,6 +8158,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           for (const tea of (it.teas || [])) score -= teacherDayCount(tea, m.day) * 2;
         }
         score += m.period <= 3 ? 3 : 0;
+        // 【提案精度】同科目の同日重複・教科の連続を加味
+        score -= softPlacementPenalty(m.id, m.day, m.period);
       }
       return score;
     });
@@ -8561,6 +8602,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         score -= v.warns.length * 8;
         if (v.warns.length) reason.push('警告:' + v.warns.join(','));
         score += (p <= 2) ? 3 : 0;
+        // 【提案精度】同科目の同日重複・教科の連続を加味して、より良い枠を上位にする
+        const soft = softPlacementPenalty(id, day, p);
+        score -= soft;
+        if (soft >= 10) reason.push('同科目が同じ日/教科が連続');
         out.push({ title: `空き: ${DAYJP[day]}${p}`, score, reason, moves: [{ id, day, period: p, span: it.span || 1 }] });
       }
     }
@@ -8611,11 +8656,14 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       ];
       const sim = simulateMoves(moves);
       if (!sim.ok) continue;
-      const score = 80 - (sim.errors.length * 10);
-      out.push({ title: `入替: ${DAYJP[po.day]}${po.period} ↔ ${DAYJP[plc.day]}${plc.period}`, score, reason: [`相手:${ito.subjKey}`], moves });
-      if (out.length >= 14) break;
+      // 【提案精度】衝突ゼロの入替を一律80点にせず、入替後の良さ（同科目重複/教科連続/教員負荷）で差を付ける
+      const score = 80 + chainQualityScore(moves);
+      out.push({ title: `入替: ${DAYJP[po.day]}${po.period} ↔ ${DAYJP[plc.day]}${plc.period}`, score: Math.round(score), reason: [`相手:${ito.subjKey}`], moves });
+      if (out.length >= 60) break; // 収集上限（この後スコア順に絞る）
     }
-    return out;
+    // 【提案精度】良い入替を上位に（衝突ゼロのものを品質順に並べて上位のみ返す）
+    out.sort((a, b) => b.score - a.score);
+    return out.slice(0, 14);
   }
   function computeCycleSuggestions(id) {
     const it = state.items[id]; const plc = state.placements[id];
