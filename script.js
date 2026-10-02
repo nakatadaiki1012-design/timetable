@@ -9312,7 +9312,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const ids = (kind === 'class'
           ? (idx.cls?.[key]?.[d]?.[p] || [])
           : (idx.tea?.[key]?.[d]?.[p] || [])
-        ).filter(id => !isSpanFill(id, d, p));
+        ); // 【4】2連の2コマ目も出力（従来は空欄）
         if (!ids.length) return;
         const it = state.items[ids[0]];
         if (!it) return;
@@ -13720,7 +13720,8 @@ function buildIndex(){
       html += `<tr><th style="${hStyle}">${p}</th>`;
       for (const d of DAYS) {
         if (p > maxPeriod(d)) { html += `<td class="forbidden"></td>`; continue; }
-        const ids = idsInCellForRow(kind, key, d, p, idx).filter(id => !isSpanFill(id, d, p));
+        // 【4】2連の2コマ目も同じ授業を印刷する（従来は isSpanFill で除外され空欄になっていた）
+        const ids = idsInCellForRow(kind, key, d, p, idx);
         if (!ids.length) { html += `<td style="${cellStyle}"></td>`; continue; }
         const lines = ids.map(id => {
           const it = state.items[id];
@@ -15566,7 +15567,8 @@ function buildIndex(){
         for (let p = 1; p <= maxP; p++) {
           const overMaxP = p > maxPeriod(day);
           if (overMaxP) { html += `<td class="forbidden" style="height:${rowH}px;width:${colW}px;min-width:${colW}px"></td>`; continue; }
-          const ids = idsInCellForRow(kind, key, day, p, idx).filter(id => !isSpanFill(id, day, p));
+          // 【4】2連の2コマ目も同じ授業を印刷する
+          const ids = idsInCellForRow(kind, key, day, p, idx);
           if (!ids.length) { html += `<td style="height:${rowH}px;width:${colW}px;min-width:${colW}px"></td>`; continue; }
           const cells = ids.map(id => {
             const it = state.items[id]; if (!it) return '';
