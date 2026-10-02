@@ -8419,6 +8419,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
   function computeSuggestionPack(id) {
     const deep = !!(window && window.__SUG_DEEP);
+    // 提案一式で共有する総時間予算。多数のpuzSearch呼び出しの合計を抑えてポップアップの固まりを防ぐ。
+    // 深読みONのときは少し長めに許容する。
+    try { window.__PUZ_GLOBAL_DEADLINE = Date.now() + (deep ? 2500 : 1100); } catch (e) { }
     const safeCompute = (fn, label) => {
       try {
         return fn() || [];
@@ -8473,6 +8476,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       lns: lnsRaw,
       force: filterSame(safeCompute(() => computeForceSuggestions(id), '強制')),
     };
+
+    // 総予算をクリア（残すと後続の単発puzSearchが即中断してしまう）
+    try { window.__PUZ_GLOBAL_DEADLINE = 0; } catch (e) { }
 
     // タブ順に重複排除（先に出たタブ優先）
     return {
@@ -17179,8 +17185,12 @@ function buildIndex(){
       Object.assign(window, {
         buildIndex, clampInt, deepClone, flash, isSpanFill,
         teacherDailyMax, teacherConsecMax, teacherDayCount,
-        chainQualityScore, clearValidSlots, simulateMoves,
-        normalizeAbbr, showModal, showModalHTML
+        chainQualityScore, softPlacementPenalty, clearValidSlots, simulateMoves,
+        normalizeAbbr, showModal, showModalHTML,
+        // トップレベルのパズル/連鎖探索(puzSearch等)が素の識別子で参照するIIFE内定数/関数。
+        // これらが未公開だと puzSearch が「DAYS is not defined」でクラッシュし、
+        // 連動・三角トレード・パズル(多手先読み)提案が全て無言で0件になる。
+        DAYS, DAYJP, maxPeriod, maxPeriodForItem
       });
     } catch (e) { }
   }
@@ -17304,7 +17314,10 @@ function puzCandidateSlots(id, baseMovesArr) {
         const idx = buildIndex();
         const v = validatePlacement(id, day, p, 'safe', null) || { blocks: ['不明'], warns: [] };
         const blockers = puzBlockerIdsFromIdx(it, id, day, p, idx);
-        return { v, blockers };
+        // 連鎖の移動先も「同科目の同日重複・教科連続・教員の中抜け」を避ける（上手くハマる手を優先）
+        let soft = 0;
+        try { if (typeof softPlacementPenalty === 'function') soft = softPlacementPenalty(id, day, p); } catch (e) { }
+        return { v, blockers, soft };
       });
 
       const blocks = info.v.blocks || [];
@@ -17329,6 +17342,9 @@ function puzCandidateSlots(id, baseMovesArr) {
       // v49+: ブロッカーが0（空き枠）は大幅ボーナス（在庫不使用の積極誘導）
       if (blockers.length === 0) score += 25;
 
+      // 連鎖の質（上手くハマる手）を優先
+      score -= (info.soft || 0);
+
       out.push({ day, p, score, blockersN: blockers.length });
     }
   }
@@ -17343,6 +17359,14 @@ function puzSearch(targetId, targetDay, targetP) {
 
   let visits = 0;
   const seen = new Set();
+  // 実時間の締切。満杯の時間割では候補評価ごとに全コマのindexを作り直すため探索が重く、
+  // visits 上限だけでは長時間ブロックし得る。締切を超えたら中断フラグで全dfsを即座に畳む。
+  const __puzStart = Date.now();
+  const __PUZ_DEADLINE = (typeof window !== 'undefined' && window.__PUZ_DEADLINE_MS) || 100;
+  // 1回のpuzSearchの締切に加え、提案一式(computeSuggestionPack)全体で共有する総締切も尊重する。
+  // これにより多数のpuzSearch呼び出しの合計時間が膨らんでポップアップが固まるのを防ぐ。
+  const __PUZ_GLOBAL = (typeof window !== 'undefined' && window.__PUZ_GLOBAL_DEADLINE) || 0;
+  let __puzAborted = false;
 
   function keyOf(moveById) {
     const ent = Object.values(moveById)
@@ -17363,8 +17387,11 @@ function puzSearch(targetId, targetDay, targetP) {
   }
 
   function dfs(moveById) {
+    if (__puzAborted) return null; // 締切超過後は全探索を即座に畳む
     visits++;
     if (visits > PUZ_CFG.MAX_VISITS) return null;
+    const now = Date.now();
+    if (now - __puzStart > __PUZ_DEADLINE || (__PUZ_GLOBAL && now > __PUZ_GLOBAL)) { __puzAborted = true; return null; }
     if (Object.keys(moveById).length > PUZ_CFG.MAX_INVOLVED) return null;
 
     const moves = Object.values(moveById);
