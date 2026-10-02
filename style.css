@@ -2074,7 +2074,7 @@ body.prop-hide #split-prop {
   gap: 4px;
   overflow: hidden;
   min-height: var(--stockItemH, 96px);
-  aspect-ratio: 1 / 1;
+  aspect-ratio: auto;
   position: relative
 }
 
@@ -2162,7 +2162,7 @@ body.prop-hide #split-prop {
 body[data-stock-size="xs"] .stock-item {
   min-height: 62px;
   padding: 4px 6px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="xs"] .stock-item .si-name {
@@ -2191,7 +2191,7 @@ body[data-stock-size="xs"] .stock-item .si-place {
 
 body[data-stock-size="sm"] .stock-item {
   min-height: 78px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="sm"] .stock-item .si-name {
@@ -2205,12 +2205,12 @@ body[data-stock-size="sm"] .stock-item .si-chips .chip {
 
 body[data-stock-size="md"] .stock-item {
   min-height: 96px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="lg"] .stock-item {
   min-height: 118px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="lg"] .stock-item .si-name {
@@ -2219,7 +2219,7 @@ body[data-stock-size="lg"] .stock-item .si-name {
 
 body[data-stock-size="xl"] .stock-item {
   min-height: 148px;
-  aspect-ratio: 1/1
+  aspect-ratio: auto
 }
 
 body[data-stock-size="xl"] .stock-item .si-name {
@@ -7286,4 +7286,172 @@ td.slot-ng {
   background: rgba(124, 58, 237, .85); color: #fff;
   border-radius: 3px; padding: 0 3px; margin-left: 2px;
   vertical-align: top; line-height: 1.5;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v62 読みやすさ改善（コマ幅確保・切れ防止・バッジの角配置）
+   ═══════════════════════════════════════════════════════════════ */
+
+/* 【1/2】在庫欄を細くして時間割に幅を回す（ドラッグで広げられる） */
+.stock {
+  width: 232px;
+  min-width: 180px
+}
+
+/* 時間割の見出し列（教員/クラス/教室）を少し細く */
+.timetable thead th:first-child,
+.timetable tbody th {
+  width: 60px;
+  min-width: 60px;
+  max-width: 60px
+}
+
+/* コマ: 色帯を細く・余白を詰め、文字に幅を回す。バッジは角に重ねるため relative */
+.timetable .lesson {
+  position: relative;
+  border-left-width: 3px !important;
+  padding: 2px 2px 2px 3px;
+  gap: 1px
+}
+
+/* 【1】クラス名・教員名は1単位ごとに折り返さない（「1-1」が「1-/1」に割れない） */
+.lesson .nb {
+  white-space: nowrap
+}
+
+/* 【2】科目名・2行目は最大2行。1文字ずつの縦並びにならないよう、幅は文字に全部使う */
+.timetable .lesson .l1 {
+  gap: 0
+}
+.timetable .lesson .l1 .subj,
+.timetable .lesson .l2 .teacher {
+  white-space: normal;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.12;
+  min-width: 0;
+  flex: 1 1 auto;
+  text-overflow: clip
+}
+.timetable .lesson .l2 {
+  margin-top: 1px
+}
+
+/* 【3】バッジ類（2連・同・⚠・⤵）は文字の横に並べず、右上角の小さな印にする */
+.timetable .lesson .badge2,
+.timetable .lesson .badge-simul,
+.timetable .lesson .vio-badge,
+.timetable .lesson .cont-mark {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  margin: 0;
+  padding: 0 2px;
+  font-size: 8px;
+  line-height: 10px;
+  height: 10px;
+  border-radius: 3px;
+  pointer-events: auto;
+  z-index: 1
+}
+.timetable .lesson .badge2 {
+  display: none
+}
+.timetable .lesson .badge-simul {
+  top: auto;
+  bottom: 1px
+}
+.timetable .lesson .vio-badge {
+  padding: 0 1px;
+  background: #dc2626;
+  box-shadow: 0 0 0 1px #fff
+}
+.timetable .lesson .cont-mark {
+  background: rgba(255, 255, 255, .8);
+  color: #475569;
+  opacity: 1
+}
+/* 違反コマは内側の赤枠だけ（文字は隠さない） */
+.timetable .lesson.violate {
+  box-shadow: inset 0 0 0 1.5px rgba(220, 38, 38, .9)
+}
+
+/* 【1/2】列の最小幅を文字サイズから決める（約2文字＋余白）。
+   月〜金が入りきらない幅では、見出し固定のまま時間割だけ横スクロールになる。 */
+.grid-wrapper {
+  --colmin: calc((var(--sub) + var(--subAdj, 0px)) * 2.1 + 9px)
+}
+.timetable {
+  min-width: max(calc(var(--table-minw, 960px) + var(--tableAdj, 0px)), calc(60px + var(--ncols, 30) * var(--colmin)))
+}
+.timetable .cell-stack {
+  padding: 1px
+}
+.timetable .lesson {
+  padding: 1px 1px 1px 2px
+}
+
+/* 教員表示: 2行目は科目名のみ（教室は狭いと読めないので、広い密度のときだけ次の行に出す） */
+.timetable .lesson.mode-teacher .l2 {
+  flex-wrap: wrap;
+  gap: 0
+}
+.timetable .lesson.mode-teacher .roommini {
+  display: none
+}
+.grid-wrapper[data-dl="4"] .timetable .lesson.mode-teacher .roommini,
+.grid-wrapper[data-dl="5"] .timetable .lesson.mode-teacher .roommini,
+.grid-wrapper[data-dl="6"] .timetable .lesson.mode-teacher .roommini {
+  display: block;
+  flex: 0 0 100%;
+  max-width: 100%;
+  margin: 0;
+  text-align: left
+}
+
+/* 教室表示: クラス名・科目名・教員名を横に詰めず縦に並べる */
+.timetable .lesson.mode-room .l1 {
+  flex-wrap: wrap
+}
+.timetable .lesson.mode-room .l1 .rightlab {
+  flex: 0 0 100%;
+  max-width: 100%;
+  margin: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: clip
+}
+
+/* 細くした在庫欄の見出し: 折り返して横書きのまま並べる（縦1文字並びを防ぐ） */
+#stock-panel .panel-head .row {
+  flex-wrap: wrap;
+  row-gap: 4px
+}
+#stock-panel .panel-head .chk {
+  white-space: nowrap
+}
+#stock-panel .panel-head .stock-search-inline {
+  flex: 1 1 90px;
+  min-width: 80px
+}
+#stock-panel .panel-head .row>.spacer {
+  display: none
+}
+
+/* 【3】⚠と⤵は文字の少ない右下角へ。違反コマは2行目の右端だけ空けて、文字に重ならないようにする */
+.timetable .lesson .vio-badge,
+.timetable .lesson .cont-mark {
+  top: auto;
+  bottom: 1px
+}
+.timetable .lesson.violate .l2 {
+  padding-right: 9px
+}
+.timetable .lesson.violate:not(:has(.l2)) .l1 {
+  padding-right: 8px
 }

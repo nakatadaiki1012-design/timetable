@@ -4928,6 +4928,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     wrap.style.setProperty('--tdhAdj', (cs * 4) + 'px');
     // 【B-1】文字を大きくしたらコマ幅(テーブル最小幅)も広げる（切れ防止・見出し固定でスクロール）
     wrap.style.setProperty('--tableAdj', (fs * 90) + 'px');
+    // 【1/2】時限の総数（列数）。CSSで「列数×文字サイズ由来の最小幅」をテーブル最小幅にする
+    try { wrap.style.setProperty('--ncols', String(activeDays().reduce((n, d) => n + maxPeriod(d), 0) || 30)); } catch (e) { }
     const fsl = $('#font-step-label'); if (fsl) fsl.textContent = `±${fs}`;
     const csl = $('#cell-step-label'); if (csl) csl.textContent = `±${cs}`;
 
@@ -5452,12 +5454,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       el.dataset.id = id;
       el.draggable = true;
       el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
-      const contLabel = mode === 'teacher' ? (it.cls[0] || '') : (abbr || '');
+      const contLabel = (mode === 'teacher' || mode === 'room') ? (it.cls || []).join(',') : (abbr || '');
+      const contHtml = (mode === 'teacher' || mode === 'room')
+        ? contLabel.split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>')
+        : escapeHtml(contLabel);
       // 【B-3/B-4】2連の2コマ目も淡背景＋色帯にし、科目名を表示（従来は「↓」だけで薄かった）
       el.style.background = paleColor(color);
       el.style.color = '#0f172a';
       el.style.borderLeft = '4px solid ' + color;
-      el.innerHTML = `<div class="l1"><div class="subj">${escapeHtml(contLabel)}</div><span class="cont-mark" title="前のコマからの続き">⤵</span></div>`;
+      el.innerHTML = `<div class="l1"><div class="subj">${contHtml}</div><span class="cont-mark" title="前のコマからの続き">⤵</span></div>`;
       el.ondragstart = (ev) => {
         window._currentDragId = id;
         window._dragPending = true;
@@ -5520,9 +5525,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     el.style.color = '#0f172a';
     el.style.borderLeft = '4px solid ' + color;
 
+    // 【1】クラス名・教員名は1つずつ折り返し禁止の単位にし、カンマの後だけで改行させる
+    const nbJoin = (txt) => String(txt || '').split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>');
     el.innerHTML = `
     <div class="l1">
-      <div class="subj">${escapeHtml(mainText)}</div>
+      <div class="subj">${(mode === 'teacher' || mode === 'room') ? nbJoin(mainText) : escapeHtml(mainText)}</div>
       ${it.span === 2 ? '<span class="badge2">2連</span>' : ''}
       ${it.simul ? `<span class="badge-simul" title="同時展開（相乗り）${it.realSubj ? '：' + escapeHtml(it.realSubj) : ''}">同</span>` : ''}
       ${vio ? '<span class="vio-badge" title="' + escapeHtml(vio) + '">⚠</span>' : ''}
@@ -5530,7 +5537,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     </div>
     ${showSecondRow ? `
       <div class="l2">
-        <div class="teacher">${escapeHtml(footText || '')}</div>
+        <div class="teacher">${mode === 'class' ? nbJoin(footText) : escapeHtml(footText || '')}</div>
         ${mode === 'teacher' && roomLabel ? `<div class="roommini">${escapeHtml(roomLabel)}</div>` : ''}
       </div>
     ` : ``}
@@ -15712,7 +15719,7 @@ function buildIndex(){
         window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
       };
     }
-    if (splitV && stock) dragV(splitV, stock, 'width', 280, 720);
+    if (splitV && stock) dragV(splitV, stock, 'width', 180, 720);
     if (splitP && prop) dragV(splitP, prop, 'width', 260, 620);
 
     if (splitTop) {
