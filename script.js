@@ -1072,6 +1072,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (!g) { g = { cls: it.cls || [], subj: it.subj, subjKey: it.subjKey || it.subj, teas: it.teas || [], rooms: it.rooms || [], span, sessions: [] }; jugyoSig.set(sig, g); jugyoGroups.push(g); }
       const pl = state.placements[it.id];
       if (pl && pl.day) g.sessions.push({ day: pl.day, period: pl.period });
+      else g.unplaced = (g.unplaced || 0) + 1; // 【6】未配置(在庫)のコマも数えて出力する
     }
     // (エンティティID → セル配置[]) を作りながらJUGYOを出力
     const jClassCells = {}, jTeachCells = {}, jRoomCells = {};
@@ -1098,10 +1099,19 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           for (const rm of g.rooms) { const ki = roomIdOf.get(rm); if (ki) (jRoomCells[ki] || (jRoomCells[ki] = [])).push({ day: s.day, period: per, jid }); }
         }
       }
+      // 【6】未配置のコマは「曜日0・時限0」の時限行として出力（週あたりコマ数を保持）
+      for (let u = 0; u < (g.unplaced || 0); u++) {
+        for (let dp = 0; dp < g.span; dp++) perLines.push(`0,0,${rId},1,${dp + 1}`);
+      }
+      // 未配置コマを含む授業は、配置が無くても担当が分かるよう4列目に教員IDを書く
+      const tId = g.unplaced ? (teachIdOf.get(g.teas[0]) || 0) : 0;
+      // 一度も配置されていない授業は J-Room に現れないため、3列目に教室IDを書く（配置済みは従来どおり）
+      const roomCol = (g.unplaced && !g.sessions.length && rId) ? rId : cId;
+      const nSess = g.sessions.length + (g.unplaced || 0);
       const name = g.subj;
       R(`${jid},"${name}","${name}","${name}"`);
       R(`0,"${availFull}-CJ${'0'.repeat(34)}"`);
-      R(`${cId},${lId},${cId},0,"${'○'.repeat(Math.min(g.sessions.length, 8))}${'　'.repeat(Math.max(0, 8 - g.sessions.length))}                       "`);
+      R(`${cId},${lId},${roomCol},${tId},"${'○'.repeat(Math.min(nSess, 8))}${'　'.repeat(Math.max(0, 8 - nSess))}                       "`);
       R(String(perLines.length));
       perLines.forEach(pl => R(pl));
     });
@@ -1436,14 +1446,18 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         let jugyoSpan = 1;
         // 時限行 field0=曜日(1-5) field1=時限。授業本来の(曜日,時限)集合を確定スケジュールとする
         const schedKeys = new Set();
+        let unplacedLines = 0; // 【6】曜日0(未配置)の時限行の数
         for (let k = 0; k < weeklyCount; k++) {
           const pl = parseLine(lines[idx + 4 + k] || '');
           const st = parseInt(pl[3], 10), en = parseInt(pl[4], 10);
           if (!isNaN(st) && !isNaN(en) && en > st) jugyoSpan = Math.max(jugyoSpan, en - st + 1);
           const dnum = parseInt(pl[0], 10), pnum = parseInt(pl[1], 10);
           if (!isNaN(dnum) && dnum >= 1 && dnum <= numDays && !isNaN(pnum) && pnum >= 1) schedKeys.add(DAY_KEYS[dnum - 1] + '#' + pnum);
+          else if (dnum === 0) unplacedLines++;
         }
-        jugyoMeta[jid] = { classId, lessonId, weeklyCount, name: f1[1] || '', span: jugyoSpan, schedKeys };
+        const teacherIdHint = parseInt(f3[3]) || 0;
+        const roomIdHint = parseInt(f3[2]) || 0;
+        jugyoMeta[jid] = { classId, lessonId, weeklyCount, name: f1[1] || '', span: jugyoSpan, schedKeys, unplacedLines, teacherIdHint, roomIdHint };
         // 1エントリ = ヘッダ4行 + weeklyCount本の時限行。従来は固定5行でズレていた。
         idx += 4 + (weeklyCount > 0 ? weeklyCount : 0);
       }
@@ -1612,7 +1626,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const subjName = lesson.name || jname;
       const subjAbbr = lesson.abbr || subjName;
       const dept = lesson.dept || '';
-      const teacherNames = jugyoToTeachers[jid] || [];
+      // 【6】一度も配置されていない授業は J-Teach に現れないため、JUGYO 4列目の教員IDで補う
+      let teacherNames = jugyoToTeachers[jid] || [];
+      if (!teacherNames.length && !(meta.schedKeys && meta.schedKeys.size) && meta.teacherIdHint && teachers[meta.teacherIdHint]?.name) {
+        teacherNames = [teachers[meta.teacherIdHint].name];
+      }
+      // 同様に、一度も配置されていない授業の教室は JUGYO 3列目の教室IDで補う
+      if (!(jugyoRooms[jid] || []).length && !(meta.schedKeys && meta.schedKeys.size) && meta.roomIdHint && rooms[meta.roomIdHint]?.name) {
+        jugyoRooms[jid] = [rooms[meta.roomIdHint].name];
+      }
       const tea = teacherNames.join(',');
       const teaAbbr = teacherNames.map(n => teacherAbbrByName[n] || n).join(',');
 
@@ -1621,13 +1643,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       // 連続コマの先頭のみを数えた「実セッション数」でitemを生成する
       // （そうしないと2連が2つの授業として重複生成され、片方が未配置で余る）。
       let sessionCount = weeklyCount;
-      if (span >= 2 && meta.schedKeys && meta.schedKeys.size) {
+      if (span >= 2) {
         sessionCount = 0;
-        for (const k of meta.schedKeys) {
+        for (const k of (meta.schedKeys || [])) {
           const hash = k.lastIndexOf('#');
           const d = k.slice(0, hash), pr = parseInt(k.slice(hash + 1), 10);
           if (!meta.schedKeys.has(d + '#' + (pr - 1))) sessionCount++; // 連続の先頭のみ
         }
+        // 【6】未配置(曜日0)の時限行は span 行で1コマ
+        sessionCount += Math.ceil((meta.unplacedLines || 0) / span);
         if (sessionCount < 1) sessionCount = 1;
       }
       jugyoItemIds[jid] = [];
