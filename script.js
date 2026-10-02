@@ -4075,6 +4075,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   ======================= */
   function switchTab(tab) {
     state.tab = tab;
+    // 【7】現在のタブを body に記録（作成画面以外では下の操作バーを隠すため）
+    document.body.dataset.tab = tab;
     $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach(v => v.style.display = 'none');
     $('#view-' + tab).style.display = 'flex';
@@ -8835,12 +8837,30 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
   function escapeAttr(s) { return escapeHtml(s).replace(/"/g, '&quot;'); }
 
+  // 【7】吹き出しはマウスを少し止めてから表示し、カーソルから離して出す（周りのコマを隠しにくく）。
+  //   クリック（選択）したらすぐ消す（詳細はプロパティ欄に出るため）。
+  let _hoverTipTimer = null, _hoverTipPending = null;
   function showHoverTip(text, x, y) {
     const tip = document.getElementById('hover-tip');
     if (!tip) return;
+    if (tip.style.display !== 'block' || tip.textContent !== text) {
+      _hoverTipPending = { text, x, y };
+      if (tip.style.display === 'block') tip.style.display = 'none';
+      clearTimeout(_hoverTipTimer);
+      _hoverTipTimer = setTimeout(() => {
+        const pnd = _hoverTipPending; _hoverTipPending = null;
+        if (pnd) _placeHoverTip(tip, pnd.text, pnd.x, pnd.y);
+      }, 450);
+      return;
+    }
+    _placeHoverTip(tip, text, x, y);
+  }
+  document.addEventListener('mousemove', (ev) => { if (_hoverTipPending) { _hoverTipPending.x = ev.clientX; _hoverTipPending.y = ev.clientY; } }, true);
+  document.addEventListener('mousedown', () => hideHoverTip(), true);
+  function _placeHoverTip(tip, text, x, y) {
     tip.textContent = text;
     tip.style.display = 'block';
-    const pad = 14;
+    const pad = 22;
     const vw = window.innerWidth, vh = window.innerHeight;
 
     // measure after display
@@ -8854,6 +8874,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     tip.style.top = Math.max(6, top) + 'px';
   }
   function hideHoverTip() {
+    clearTimeout(_hoverTipTimer); _hoverTipPending = null;
     const tip = document.getElementById('hover-tip');
     if (tip) tip.style.display = 'none';
   }

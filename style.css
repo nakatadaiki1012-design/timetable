@@ -7455,3 +7455,94 @@ td.slot-ng {
 .timetable .lesson.violate:not(:has(.l2)) .l1 {
   padding-right: 8px
 }
+
+/* ═══ v62 【7】細かいUI修正 ═══ */
+
+/* ヘッダ: 右側のボタンが画面外に隠れていた（1440pxで約600px分）。
+   入りきらない分は2段目に折り返して、全ボタンが常に見えるようにする */
+body {
+  display: flex;
+  flex-direction: column
+}
+.app-header {
+  height: auto;
+  min-height: 48px;
+  flex: 0 0 auto;
+  overflow: visible;
+  padding: 4px 6px;
+  position: relative;
+  z-index: 50
+}
+.header-right {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 4px;
+  overflow: visible
+}
+.app-main {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0
+}
+
+/* AIの状況表示: 進捗バーを文字の下の細線にして、文字に幅を全部使う */
+#ai-status-wrap {
+  position: relative;
+  min-width: 140px !important
+}
+#ai-progress-bar {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  height: 3px !important;
+  max-width: 100%
+}
+
+/* 下の操作バー: 画面下のヒント帯に重ならないよう、その上に浮かせる */
+#quick-action-bar {
+  bottom: 46px;
+  border-radius: 16px;
+  border-bottom: 2px solid #334155
+}
+#quick-action-bar:not(.show) {
+  transform: translateX(-50%) translateY(160px)
+}
+
+/* プロパティ欄の「即配置可」「交換可」「難」: 途中で折り返さない */
+.slot-stat .slot-label {
+  white-space: nowrap;
+  font-size: 10px;
+  letter-spacing: -.02em
+}
+/* 空のメッセージ欄が80px場所を取り、ヘッダが3段になっていた */
+.app-header .msg:empty {
+  display: none
+}
+.app-header .msg {
+  min-width: 0
+}
+/* 通知メッセージ: ヘッダ内で120pxに切れていた＋表示のたびにヘッダ高さが変わっていた。
+   ヘッダ右下に浮かぶ通知にして、全文を表示する */
+.app-header .msg:not(:empty) {
+  display: block;
+  position: absolute;
+  right: 10px;
+  top: calc(100% + 6px);
+  max-width: min(640px, 90vw);
+  white-space: normal;
+  overflow: visible;
+  background: #0f172a;
+  color: #f8fafc;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 14px;
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, .25);
+  opacity: 1;
+  z-index: 9500;
+  pointer-events: none
+}
+/* 作成画面以外のタブでは、下の操作バー（提案・ロック・在庫へ）を出さない */
+body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
+  display: none
+}
