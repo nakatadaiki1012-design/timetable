@@ -8141,6 +8141,24 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         }
       }
     }
+    // 教員の中抜け（授業→空き→授業）を増やす配置を避ける
+    const lunchAfter = Number(state.settings.lunchAfter || 0);
+    for (const t of (it.teas || [])) {
+      const tday = idx.tea?.[t]?.[day] || {};
+      const set = new Set();
+      for (const p in tday) for (const oid of (tday[p] || [])) { if (oid !== id) set.add(Number(p)); }
+      for (let dp = 0; dp < span; dp++) set.add(period + dp);
+      if (set.size >= 2) {
+        const arr = [...set].sort((a, b) => a - b);
+        let holes = 0;
+        for (let pp = arr[0] + 1; pp < arr[arr.length - 1]; pp++) {
+          if (set.has(pp)) continue;
+          if (lunchAfter && pp === lunchAfter + 1) continue; // 昼休み直後の空きは中抜けと見なさない
+          holes++;
+        }
+        pen += holes * 3;
+      }
+    }
     return pen;
   }
 
