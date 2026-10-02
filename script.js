@@ -5460,6 +5460,44 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return uniq(msgs).slice(0, 6).join(' / ');
   }
 
+  // 【UI】コマ表示用の短い科目名。略称が未設定/長すぎる場合に自動で短縮する。
+  function displayAbbr(it, scfg) {
+    let a = String((scfg && scfg.abbr) || it.subj || it.subjKey || '').trim();
+    const MAP = { '総合的な探究の時間': '総探', '総合的な学習の時間': '総学', 'ロングホームルーム': 'LHR', 'ホームルーム': 'HR' };
+    if (MAP[a]) return MAP[a];
+    a = a.replace(/[（(]([^）)]*)[）)]/g, '$1'); // 自選(月) → 自選月
+    a = a.replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    if (a.length > 5 && !(scfg && scfg.abbr && scfg.abbr.length <= 5)) a = a.slice(0, 4);
+    return a;
+  }
+  // 【UI】合同クラスの表記を圧縮（3クラス以上は「1-8 他2」）
+  function compactClsLabel(cls) {
+    const a = (cls || []).filter(Boolean);
+    if (a.length <= 2) return a.join(',');
+    return a[0] + ' 他' + (a.length - 1);
+  }
+  // 【UI】連動グループ: 一緒に動く／同時に開講されるコマ
+  //   同一コマ(合同で複数行に出る) / 並列設定コマ / 同時展開(自選等)ブロックの同時限コマ
+  function linkedGroupIds(id) {
+    const it = state.items[id]; const plc = state.placements[id];
+    const out = new Set([id]);
+    if (!it || !plc || !plc.day) return out;
+    for (const oid in state.items) {
+      if (oid === id) continue;
+      const o = state.items[oid]; const op = state.placements[oid];
+      if (!o || !op || op.day !== plc.day || op.period !== plc.period) continue;
+      if ((it.parallel && o.parallel) || (it.simul && o.simul && o.subj === it.subj)) out.add(oid);
+    }
+    return out;
+  }
+  function linkKindChips(it) {
+    const chips = [];
+    if ((it.cls || []).length > 1) chips.push(['合', 'c-gou', '合同授業: ' + it.cls.join(',')]);
+    if (it.simul) chips.push(['同', 'c-simul', '同時展開' + (it.realSubj ? '：' + it.realSubj : '')]);
+    if (it.parallel) chips.push(['並', 'c-par', '並列（同時に開講）']);
+    return chips;
+  }
+
   function renderLessonCard(id, mode, rowKey, isCont = false) {
     const it = state.items[id];
     const plc = state.placements[id];
@@ -5467,7 +5505,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     const scfg = state.subjectCfg[it.subjKey] || {};
     const color = getItemDisplayColor(id);
-    const abbr = (scfg.abbr || it.subj || '').trim();
+    const abbr = displayAbbr(it, scfg);
 
     const teaLabel = (it.teas||[]).map(t => state.teacherCfg[t]?.abbr || normalizeAbbr(t, 12) || t).join(',');
     const clsLabel = (it.cls||[]).join(',');
@@ -5480,7 +5518,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       el.dataset.id = id;
       el.draggable = true;
       el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
-      const contLabel = (mode === 'teacher' || mode === 'room') ? (it.cls || []).join(',') : (abbr || '');
+      const contLabel = (mode === 'teacher' || mode === 'room') ? compactClsLabel(it.cls) : (abbr || '');
       const contHtml = (mode === 'teacher' || mode === 'room')
         ? contLabel.split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>')
         : escapeHtml(contLabel);
@@ -5516,7 +5554,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     if (mode === 'teacher') {
       // Teacher axis: show class on 1st row, subject on 2nd row (readable)
-      mainText = (it.cls && it.cls.length) ? it.cls.join(',') : '(未)';
+      mainText = (it.cls && it.cls.length) ? compactClsLabel(it.cls) : '(未)';
       subText = ''; // avoid tiny right label
       showSecondRow = true;
       footText = (abbr || it.subjKey || it.subj || '').toString();
@@ -5526,7 +5564,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (teaLabel) { footText = teaLabel; showSecondRow = true; }
     } else if (mode === 'room') {
       // 教室窓: クラス名（全体表示）+ 科目略称 + 教員略称
-      mainText = (it.cls && it.cls.length) ? it.cls.join(',') : '(未)';
+      mainText = (it.cls && it.cls.length) ? compactClsLabel(it.cls) : '(未)';
       subText = abbr;
       footText = teaLabel;
       showSecondRow = !!(footText);
@@ -5545,6 +5583,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     el.draggable = true;
     el.dataset.id = id;
     el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
+    // 【UI】選択中コマの連動グループ（合同の別行表示・並列・同時展開）を常時強調
+    try { const sid = state.ui.selectedId; if (sid && sid !== id && linkedGroupIds(sid).has(id)) el.classList.add('linked-hl'); if (sid === id && (linkedGroupIds(id).size > 1 || (it.cls || []).length > 1)) el.classList.add('linked-root'); } catch (e) { }
     // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
     // 【B-3】淡い背景＋濃い文字＋左端の色帯（科目色分けは色帯で維持、文字はコントラスト比4.5以上）
     el.style.background = paleColor(color);
@@ -5555,11 +5595,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const nbJoin = (txt) => String(txt || '').split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>');
     el.innerHTML = `
     <div class="l1">
-      <div class="subj">${(mode === 'teacher' || mode === 'room') ? nbJoin(mainText) : escapeHtml(mainText)}</div>
-      ${it.span === 2 ? '<span class="badge2">2連</span>' : ''}
-      ${it.simul ? `<span class="badge-simul" title="同時展開（相乗り）${it.realSubj ? '：' + escapeHtml(it.realSubj) : ''}">同</span>` : ''}
-      ${vio ? '<span class="vio-badge" title="' + escapeHtml(vio) + '">⚠</span>' : ''}
+      <div class="subj${String(mainText).length >= 3 ? ' long' : ''}${String(mainText).length >= 5 ? ' xlong' : ''}">${(mode === 'teacher' || mode === 'room') ? nbJoin(mainText) : escapeHtml(mainText)}</div>
       ${(mode === 'room' || mode === 'teacher') && subText ? `<div class="rightlab">${escapeHtml(mode === 'room' ? subText.slice(0, 6) : subText.slice(0, 4))}</div>` : ``}
+    </div>
+    <div class="lchips">
+      ${linkKindChips(it).map(([t, c, tip]) => `<span class="lchip ${c}" title="${escapeAttr(tip)}">${t}</span>`).join('')}
+      ${(it.span || 1) >= 2 ? `<span class="lchip c-span" title="${it.span}コマ連続">${it.span}</span>` : ''}
+      ${vio ? '<span class="lchip c-vio" title="' + escapeAttr(vio) + '">!</span>' : ''}
     </div>
     ${showSecondRow ? `
       <div class="l2">
@@ -5649,11 +5691,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         (idx.cls?.[cls]?.[d]?.[p] || []).forEach(x => { if (x !== id) relIds.add(x); });
       }
     }
+    // 連動グループ（同じコマの別行表示・並列・同時展開）は強調表示
+    const linked = linkedGroupIds(id);
     // DOM要素に関連クラスを付与
     document.querySelectorAll('.lesson[data-id]').forEach(el2 => {
       const eid = el2.dataset.id;
       if (!eid) return;
-      if (on && relIds.has(eid)) el2.classList.add('related-highlight');
+      const isLinked = on && (linked.has(eid) && !(eid === id && el2.matches(':hover')));
+      el2.classList.toggle('linked-hover', !!isLinked);
+      if (on && relIds.has(eid) && !linked.has(eid)) el2.classList.add('related-highlight');
       else el2.classList.remove('related-highlight');
     });
     // 在庫アイテムにも
