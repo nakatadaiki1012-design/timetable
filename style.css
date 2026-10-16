@@ -7601,3 +7601,25 @@ body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
 .lesson .l1 .subj.long  { font-size: calc(var(--sub) + var(--subAdj) - 1.5px); letter-spacing: -.04em; line-height: 1.02; }
 .lesson .l1 .subj.xlong { font-size: calc(var(--sub) + var(--subAdj) - 2.5px); letter-spacing: -.06em; }
 .lesson .l2 .teacher { font-size: calc(var(--meta) + var(--metaAdj) - .5px); opacity: .85; }
+
+/* 【UI】コマ上のマーク類は文字を見えにくくするため表示しない（種別はホバー説明・選択時の紫枠で示す） */
+.lesson .lchips, .lesson .cont-mark, .lesson .badge2, .lesson .badge-simul, .lesson .vio-badge { display: none !important; }
+
+/* 【UI修正】「⚙ その他」パネルが画面右端からはみ出して一部ボタンが押せなかった問題 */
+.toolbar-more-panel { max-width: min(640px, calc(100vw - 24px)) !important; min-width: min(520px, calc(100vw - 24px)) !important; }
+
+/* 【UI修正】行数が多いコマで上の行（クラス名）が切れていた → 上詰めにして切れるなら下側に */
+.cell-stack > .lesson:only-child { justify-content: flex-start; }
+
+/* 教員/教室表示の1行目（クラス名）は1行に収める。長い合同表記はさらに小さく */
+.timetable .lesson.mode-teacher .l1 .subj, .timetable .lesson.mode-room .l1 .subj { white-space: nowrap !important; display: block !important; -webkit-line-clamp: unset; overflow: hidden; text-overflow: clip; }
+.lesson .l1 .subj.xxlong { font-size: calc(var(--sub) + var(--subAdj) - 3.5px); letter-spacing: -.08em; }
+.timetable .lesson.mode-teacher .l1 .subj.xlong, .timetable .lesson.mode-room .l1 .subj.xlong { font-size: calc(var(--sub) + var(--subAdj) - 3.5px); letter-spacing: -.07em; }
+.timetable .lesson.mode-teacher .l1 .subj.xxlong, .timetable .lesson.mode-room .l1 .subj.xxlong { font-size: calc(var(--sub) + var(--subAdj) - 4.5px); letter-spacing: -.09em; }
+
+/* 【UI修正】コマ選択時の操作バーが時間割の下の行を覆い隠していた → 細くしてフッター上に重ねる */
+#quick-action-bar { bottom: 6px !important; padding: 3px 10px !important; gap: 10px !important; border-radius: 10px !important;
+  border-bottom: 2px solid #334155 !important; min-width: 0 !important; max-width: min(560px, 60vw) !important; }
+#quick-action-bar .qab-btn { padding: 3px 10px !important; font-size: 12px !important; }
+#quick-action-bar .qab-chip { padding: 2px 8px !important; font-size: 12px !important; }
+#quick-action-bar .qab-details { font-size: 11px !important; line-height: 1.15; }

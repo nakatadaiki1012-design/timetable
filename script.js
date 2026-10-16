@@ -5473,8 +5473,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   // 【UI】合同クラスの表記を圧縮（3クラス以上は「1-8 他2」）
   function compactClsLabel(cls) {
     const a = (cls || []).filter(Boolean);
-    if (a.length <= 2) return a.join(',');
-    return a[0] + ' 他' + (a.length - 1);
+    if (a.length >= 3) return a[0] + ' 他' + (a.length - 1);
+    if (a.length === 2) {
+      // 同じ学年なら「2-7,2-8」→「2-7,8」と短縮（狭いコマで上の行が切れるのを防ぐ）
+      const m0 = a[0].match(/^(\d+-)(.+)$/), m1 = a[1].match(/^(\d+-)(.+)$/);
+      if (m0 && m1 && m0[1] === m1[1]) return a[0] + ',' + m1[2];
+    }
+    return a.join(',');
   }
   // 【UI】連動グループ: 一緒に動く／同時に開講されるコマ
   //   同一コマ(合同で複数行に出る) / 並列設定コマ / 同時展開(自選等)ブロックの同時限コマ
@@ -5519,14 +5524,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       el.draggable = true;
       el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
       const contLabel = (mode === 'teacher' || mode === 'room') ? compactClsLabel(it.cls) : (abbr || '');
-      const contHtml = (mode === 'teacher' || mode === 'room')
-        ? contLabel.split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>')
-        : escapeHtml(contLabel);
+      const contHtml = escapeHtml(contLabel);
       // 【B-3/B-4】2連の2コマ目も淡背景＋色帯にし、科目名を表示（従来は「↓」だけで薄かった）
       el.style.background = paleColor(color);
       el.style.color = '#0f172a';
       el.style.borderLeft = '4px solid ' + color;
-      el.innerHTML = `<div class="l1"><div class="subj">${contHtml}</div><span class="cont-mark" title="前のコマからの続き">⤵</span></div>`;
+      el.innerHTML = `<div class="l1"><div class="subj">${contHtml}</div></div>`;
       el.ondragstart = (ev) => {
         window._currentDragId = id;
         window._dragPending = true;
@@ -5595,7 +5598,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const nbJoin = (txt) => String(txt || '').split(',').map(s => `<span class="nb">${escapeHtml(s)}</span>`).join(',<wbr>');
     el.innerHTML = `
     <div class="l1">
-      <div class="subj${String(mainText).length >= 3 ? ' long' : ''}${String(mainText).length >= 5 ? ' xlong' : ''}">${(mode === 'teacher' || mode === 'room') ? nbJoin(mainText) : escapeHtml(mainText)}</div>
+      <div class="subj${String(mainText).length >= 3 ? ' long' : ''}${String(mainText).length >= 5 ? ' xlong' : ''}${String(mainText).length >= 7 ? ' xxlong' : ''}">${escapeHtml(mainText)}</div>
       ${(mode === 'room' || mode === 'teacher') && subText ? `<div class="rightlab">${escapeHtml(mode === 'room' ? subText.slice(0, 6) : subText.slice(0, 4))}</div>` : ``}
     </div>
     <div class="lchips">
@@ -9007,8 +9010,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const rooms = it.rooms.join(',') || '(未)';
     const when = plc ? `${DAYJP[plc.day]}${plc.period}〜${plc.period + it.span - 1}` : '(未配置)';
     const lock = (plc && plc.locked) ? '🔒ロック' : '';
-    const span = it.span === 2 ? '2連' : '1コマ';
-    return `科目: ${abbr} (${it.subj})\nクラス: ${cls}\n教員: ${teas}\n教室: ${rooms}\n時刻: ${when}\n${span} ${lock}`.trim();
+    const span = (it.span || 1) >= 2 ? `${it.span}連` : '1コマ';
+    // コマ上のマークを廃止した分、種別（合同/同時展開/並列/違反）はホバー説明で示す
+    const kinds = [];
+    if ((it.cls || []).length > 1) kinds.push('合同授業');
+    if (it.simul) kinds.push('同時展開' + (it.realSubj ? '（' + it.realSubj + '）' : ''));
+    if (it.parallel) kinds.push('並列');
+    let vio = ''; try { vio = violationSummary(id) || ''; } catch (e) { }
+    return `科目: ${abbr} (${it.subj})\nクラス: ${cls}\n教員: ${teas}\n教室: ${rooms}\n時刻: ${when}\n${span} ${lock}` +
+      (kinds.length ? `\n連動: ${kinds.join('・')}` : '') + (vio ? `\n⚠ ${vio}` : '');
   }
   function hexWithAlpha(hex, a) {
     const m = hex.replace('#', '');
@@ -17240,6 +17250,24 @@ function buildIndex(){
       });
     } catch (e) { }
   }
+
+  // 【UI修正】「⚙ その他」等のドロップダウンを、開いたときに必ず画面内へ収める
+  function clampDropdownPanels() {
+    document.querySelectorAll('details.hdr-more[open] > .hdr-more-panel').forEach(panel => {
+      panel.style.left = ''; panel.style.right = '';
+      const host = panel.parentElement.getBoundingClientRect();
+      const pw = panel.offsetWidth || 0, W = window.innerWidth, M = 8;
+      // 既定は右揃え。左にはみ出すなら左揃え、それでも右にはみ出すなら画面内へずらす
+      let left = host.right - pw;
+      if (left < M) left = host.left;
+      if (left + pw > W - M) left = W - M - pw;
+      if (left < M) left = M;
+      panel.style.left = (left - host.left) + 'px';
+      panel.style.right = 'auto';
+    });
+  }
+  document.addEventListener('toggle', (ev) => { if (ev.target && ev.target.matches && ev.target.matches('details.hdr-more')) requestAnimationFrame(clampDropdownPanels); }, true);
+  window.addEventListener('resize', () => { try { clampDropdownPanels(); } catch (e) { } });
 
   document.addEventListener('DOMContentLoaded', init);
 
