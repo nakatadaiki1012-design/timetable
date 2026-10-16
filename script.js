@@ -8211,9 +8211,67 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return pen;
   }
 
+  // 【提案精度】移動の前後で「関係する先生・クラスの、関係する曜日」の時間割の悪さを比べる。
+  // 移動先だけでなく移動元に空きコマ(中抜け)ができる悪化や、逆に解消される改善も反映する。
+  function localSoftCost(teas, clsList, days) {
+    const idx = buildIndex();
+    const lunchAfter = Number(state.settings.lunchAfter || 0);
+    let cost = 0;
+    for (const t of teas) for (const d of days) {
+      const tday = idx.tea?.[t]?.[d] || {};
+      const ps = Object.keys(tday).filter(p => (tday[p] || []).length).map(Number).sort((a, b) => a - b);
+      if (ps.length >= 2) {
+        const set = new Set(ps);
+        for (let pp = ps[0] + 1; pp < ps[ps.length - 1]; pp++) {
+          if (set.has(pp) || (lunchAfter && pp === lunchAfter + 1)) continue;
+          cost += 6; // 中抜け（先生にとって負担が大きいので重め）
+        }
+      }
+      const maxD = teacherDailyMax(t);
+      if (maxD != null && ps.length > maxD) cost += (ps.length - maxD) * 6;
+    }
+    for (const c of clsList) for (const d of days) {
+      const cday = idx.cls?.[c]?.[d] || {};
+      const bySubj = {}; const starts = [];
+      for (const p in cday) for (const oid of (cday[p] || [])) {
+        if (isSpanFill(oid, d, Number(p))) continue;
+        const o = state.items[oid]; if (!o) continue;
+        (bySubj[o.subjKey] = bySubj[o.subjKey] || []).push(oid);
+        starts.push({ p: Number(p), id: oid, span: o.span || 1 });
+      }
+      for (const k in bySubj) {
+        const n = new Set(bySubj[k]).size;
+        if (n > 1) cost += (n - 1) * ((state.subjectCfg[k] || {}).noSameDay ? 24 : 10);
+      }
+      starts.sort((a, b) => a.p - b.p);
+      for (let i = 0; i + 1 < starts.length; i++) {
+        const a = starts[i], b = starts[i + 1];
+        if (a.p + a.span !== b.p) continue;
+        const da = (state.subjectCfg[state.items[a.id]?.subjKey] || {}).dept || '';
+        const db = (state.subjectCfg[state.items[b.id]?.subjKey] || {}).dept || '';
+        if (da && da === db) cost += ((state.subjectCfg[state.items[b.id]?.subjKey] || {}).noConsec ? 10 : 4);
+      }
+    }
+    return cost;
+  }
+  function moveDeltaCost(moves) {
+    if (!moves || !moves.length) return 0;
+    const teas = new Set(), cls = new Set(), days = new Set();
+    for (const m of moves) {
+      const it = state.items[m.id]; if (!it) continue;
+      (it.teas || []).forEach(t => teas.add(t)); (it.cls || []).forEach(c => cls.add(c));
+      days.add(m.day); const cur = state.placements[m.id]; if (cur && cur.day) days.add(cur.day);
+    }
+    const T = [...teas], C = [...cls], D = [...days];
+    const before = localSoftCost(T, C, D);
+    const after = puzWithTempMoves(moves, () => localSoftCost(T, C, D));
+    return after - before; // 負なら時間割が良くなる
+  }
+
   function chainQualityScore(moves) {
     if (!moves || !moves.length) return 0;
-    return puzWithTempMoves(moves, () => {
+    let __delta = 0; try { __delta = moveDeltaCost(moves); } catch (e) { }
+    return -__delta + puzWithTempMoves(moves, () => {
       let score = 0;
       for (const m of moves) {
         const v = validatePlacement(m.id, m.day, m.period, 'safe', null) || { blocks: [], warns: [] };
@@ -8225,8 +8283,6 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           for (const tea of (it.teas || [])) score -= teacherDayCount(tea, m.day) * 2;
         }
         score += m.period <= 3 ? 3 : 0;
-        // 【提案精度】同科目の同日重複・教科の連続を加味
-        score -= softPlacementPenalty(m.id, m.day, m.period);
       }
       return score;
     });
@@ -8676,9 +8732,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         if (v.warns.length) reason.push('警告:' + v.warns.join(','));
         score += (p <= 2) ? 3 : 0;
         // 【提案精度】同科目の同日重複・教科の連続を加味して、より良い枠を上位にする
-        const soft = softPlacementPenalty(id, day, p);
-        score -= soft;
-        if (soft >= 10) reason.push('同科目が同じ日/教科が連続');
+        let delta = 0; try { delta = moveDeltaCost([{ id, day, period: p, span: it.span || 1 }]); } catch (e) { }
+        score -= delta;
+        if (delta >= 10) reason.push('同科目が同じ日/教科連続/空きコマが増える');
+        else if (delta < 0) reason.push('時間割が良くなる（空きコマ・重複が減る）');
         out.push({ title: `空き: ${DAYJP[day]}${p}`, score, reason, moves: [{ id, day, period: p, span: it.span || 1 }] });
       }
     }
