@@ -7630,3 +7630,14 @@ body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
 body.qab-on footer.status .muted.small { visibility: hidden; }
 /* 改善: データ登録表で長い教員名・教室名が切れていても末尾を「…」で示す */
 #input-table td input[type=text] { text-overflow: ellipsis; }
+/* 改善: 幅1366px以下でヘッダーのボタンを詰め、3段に折り返すのを防ぐ */
+@media (max-width: 1366px) {
+  .app-header .btn, .app-header select.btn, .app-header .header-right select { padding: 2px 4px !important; font-size: 10.5px !important; }
+  .app-header .header-right { gap: 2px; }
+  .app-header .hdr-sep { display: none; }
+  .app-header .tab { padding: 6px 4px 5px; font-size: 11.5px; }
+  .app-header .brand .ver { display: none; }
+  .placement-progress { min-width: 0 !important; gap: 4px; }
+  .placement-progress-track { width: 60px !important; }
+  .placement-progress-label { font-size: 10px; }
+}

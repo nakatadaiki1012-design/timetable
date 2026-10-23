@@ -7353,6 +7353,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const curPlc = state.placements[id];
       let matrixTrs = '';
 
+      // マス上の吹き出し: 点数ではなく「どうすれば入るか」を言葉で示す
+      const sugCellTip = (d, p, cell, best, depth) => {
+        const bad = (best.score || 0) < 0;
+        let how = depth === 0 ? 'そのまま置けます' : depth === 1 ? '他の1コマと入れ替えれば置けます' : `他の${depth}コマを動かせば置けます`;
+        if (bad) how = (depth === 0 ? '置けますが' : how.replace('置けます', '置けますが')) + '、重複などの問題が残ります';
+        const why = (best.reason || []).slice(0, 2).join(' / ');
+        const n = cell.sugs.length > 1 ? `（案${cell.sugs.length}件）` : '';
+        return `${DAYJP[d]}${p}限: ${how}${n}` + (why ? `\n${why}` : '') + '\nクリックで手順を表示';
+      };
       for (let p = 1; p <= maxP; p++) {
         matrixTrs += `<tr><th>${p}限</th>`;
         for (const d of DAYS) {
@@ -7379,7 +7388,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
             const cntBadge = cell.sugs.length > 1 ? `<span style="font-size:8px;color:#94a3b8;display:block;line-height:1">${cell.sugs.length}</span>` : '';
             const currentFlag = isCurrent ? '<span style="font-size:9px;vertical-align:top">現</span>' : '';
 
-            matrixTrs += `<td class="idea-matrix-cell js-matrix-cell ${className} ${activeCls}" data-day="${d}" data-per="${p}" title="${DAYJP[d]}${p}限: ${cell.sugs.length}件 (最高スコア:${Math.round(best.score || 0)})">${currentFlag}${mark}${cntBadge}</td>`;
+            matrixTrs += `<td class="idea-matrix-cell js-matrix-cell ${className} ${activeCls}" data-day="${d}" data-per="${p}" title="${escapeAttr(sugCellTip(d, p, cell, best, depth))}">${currentFlag}${mark}${cntBadge}</td>`;
           }
         }
         matrixTrs += `</tr>`;
