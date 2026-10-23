@@ -7623,3 +7623,10 @@ body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
 #quick-action-bar .qab-btn { padding: 3px 10px !important; font-size: 12px !important; }
 #quick-action-bar .qab-chip { padding: 2px 8px !important; font-size: 12px !important; }
 #quick-action-bar .qab-details { font-size: 11px !important; line-height: 1.15; }
+
+/* 改善: 設定カードを上揃え（中身が少ないカードが縦に間延びしない） */
+#view-school .settings-grid, #view-subject .settings-grid, #view-teacher .settings-grid { align-items: start; }
+/* 改善: コマ選択中はクイック操作バーと重なる画面下のヒント文を隠す */
+body.qab-on footer.status .muted.small { visibility: hidden; }
+/* 改善: データ登録表で長い教員名・教室名が切れていても末尾を「…」で示す */
+#input-table td input[type=text] { text-overflow: ellipsis; }

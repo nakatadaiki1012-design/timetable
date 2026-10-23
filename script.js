@@ -243,6 +243,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
   const DAYJP = { Mon: '月', Tue: '火', Wed: '水', Thu: '木', Fri: '金', Sat: '土', Sun: '日' };
   const ALL_DAY_KEYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  // 土曜の時限数が1以上なら6日制、0なら5日制として曜日列を伸縮する（保存データ読込時にも効く）
+  function syncDaysFromSettings() {
+    const sat = parseInt(state?.settings?.periodsByDay?.Sat, 10) || 0;
+    const want = sat > 0 ? 6 : 5;
+    if (DAYS.length !== want) setActiveDayCount(want);
+  }
   function setActiveDayCount(n) {
     n = Math.max(1, Math.min(7, parseInt(n, 10) || 5));
     DAYS.length = 0;
@@ -4089,6 +4095,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
 
   function rerenderAll() {
+    syncDaysFromSettings();
     // keep current tab
     if (state.tab === 'input') renderInputTable();
     if (state.tab === 'school') renderSchoolSettings();
@@ -4170,6 +4177,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     $('#p-wed').value = state.settings.periodsByDay.Wed;
     $('#p-thu').value = state.settings.periodsByDay.Thu;
     $('#p-fri').value = state.settings.periodsByDay.Fri;
+    if ($('#p-sat')) $('#p-sat').value = state.settings.periodsByDay.Sat || 0;
     $('#lunch-after').value = state.settings.lunchAfter;
     $('#chk-room-conflict').checked = !!state.settings.roomConflict;
     $('#school-tea-maxdaily').value = state.settings.teaDefaultMaxDaily ?? '';
@@ -4266,6 +4274,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     state.settings.periodsByDay.Wed = clamp(parseInt($('#p-wed').value ?? 6, 10), 0, 12);
     state.settings.periodsByDay.Thu = clamp(parseInt($('#p-thu').value ?? 6, 10), 0, 12);
     state.settings.periodsByDay.Fri = clamp(parseInt($('#p-fri').value ?? 6, 10), 0, 12);
+    if ($('#p-sat')) state.settings.periodsByDay.Sat = clamp(parseInt($('#p-sat').value || 0, 10) || 0, 0, 12);
+    syncDaysFromSettings();
     state.settings.lunchAfter = clamp(parseInt($('#lunch-after').value || 4, 10), 0, 11);
     state.settings.roomConflict = !!$('#chk-room-conflict').checked;
     const md = $('#school-tea-maxdaily').value.trim();
@@ -4315,9 +4325,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       <td><input type="text" value="${escapeAttr(r.subj || '')}" list="dl-subjects" /></td>
       <td><input type="text" value="${escapeAttr(r.subjAbbr || '')}" placeholder="略" /></td>
       <td><input type="text" value="${escapeAttr(r.dept || '')}" placeholder="教科" /></td>
-      <td><input type="text" value="${escapeAttr(r.tea || '')}" list="dl-teachers" /></td>
-      <td><input type="text" value="${escapeAttr(r.teaAbbr || '')}" placeholder="略" /></td>
-      <td class="${roomWarn ? 'cell-room-warn' : ''}" title="${roomWarn ? '教室が未設定です' : ''}"><input type="text" value="${escapeAttr(r.room || '')}" placeholder="例: 1-1,オーラル教室" /></td>
+      <td><input type="text" value="${escapeAttr(r.tea || '')}" title="${escapeAttr(r.tea || '')}" list="dl-teachers" /></td>
+      <td><input type="text" value="${escapeAttr(r.teaAbbr || '')}" title="${escapeAttr(r.teaAbbr || '')}" placeholder="略" /></td>
+      <td class="${roomWarn ? 'cell-room-warn' : ''}" title="${roomWarn ? '教室が未設定です' : ''}"><input type="text" value="${escapeAttr(r.room || '')}" title="${escapeAttr(r.room || '')}" placeholder="例: 1-1,オーラル教室" /></td>
       <td><input type="number" min="1" max="30" value="${escapeAttr(r.count || 1)}" /></td>
       <td><input type="checkbox" ${r.dbl ? 'checked' : ''} /></td>
       <td><input type="checkbox" ${r.parallel ? 'checked' : ''} title="並列：同一先生が複数クラスに同時展開" /></td>
@@ -5143,7 +5153,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         }
         // v32.5: overflow badge - show warning when multiple items in same cell
         const realIds = ids.filter(x => !isSpanFill(x, day, p));
-        if (realIds.length > 1) {
+        if (realIds.length > 1 && rowKey !== '(未)') { // (未)行＝教員/教室が未設定の集まりなので重複警告しない
           // Check if ALL are parallel - if so, show info badge (blue), not error
           const allParallel = realIds.every(x => state.items[x]?.parallel);
           const names = realIds.map(x => { const s = state.subjectCfg[state.items[x]?.subjKey] || {}; return s.abbr || state.items[x]?.subj || x; }).join(', ');
@@ -5741,6 +5751,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
 
     const id = state.ui.selectedId;
+    document.body.classList.toggle('qab-on', !!(id && state.items[id]));
     if (!id) {
       bar.classList.remove('show');
       return;
@@ -9065,7 +9076,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const cls = it.cls.join(',') || '(未)';
     const teas = it.teas.join(',') || '(未)';
     const rooms = it.rooms.join(',') || '(未)';
-    const when = plc ? `${DAYJP[plc.day]}${plc.period}〜${plc.period + it.span - 1}` : '(未配置)';
+    const when = plc ? (`${DAYJP[plc.day]}${plc.period}` + ((it.span || 1) >= 2 ? `〜${plc.period + it.span - 1}` : '')) : '(未配置)';
     const lock = (plc && plc.locked) ? '🔒ロック' : '';
     const span = (it.span || 1) >= 2 ? `${it.span}連` : '1コマ';
     // コマ上のマークを廃止した分、種別（合同/同時展開/並列/違反）はホバー説明で示す
@@ -16089,7 +16100,7 @@ function buildIndex(){
       markDirty('schoolDefault');
       renderSchoolSettings();
     };
-    ['#p-mon', '#p-tue', '#p-wed', '#p-thu', '#p-fri', '#lunch-after', '#chk-room-conflict', '#school-tea-maxdaily', '#school-tea-maxconsec']
+    ['#p-mon', '#p-tue', '#p-wed', '#p-thu', '#p-fri', '#p-sat', '#lunch-after', '#chk-room-conflict', '#school-tea-maxdaily', '#school-tea-maxconsec']
       .forEach(sel => {
         const el = $(sel);
         if (el) el.addEventListener('change', gatherSchoolSettings);
