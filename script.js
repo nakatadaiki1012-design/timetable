@@ -8321,12 +8321,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const seen = new Set();
     const startTime = Date.now();
 
+    const foundMap = puzSearchTwoPass(id, targetSlots, 1200);
     for (const { day, p } of targetSlots) {
-      // v63.2: 探索時間上限を延長（800ms→1200ms）退避なし提案を増やすため
-      if (Date.now() - startTime > 1200) break;
       if (out.length >= maxResults * 2) break;
 
-      const moves = puzSearch(id, day, p);
+      const moves = foundMap.get(day + p);
       if (!moves || !moves.length) continue;
 
       // 重複排除
@@ -8546,7 +8545,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const deep = !!(window && window.__SUG_DEEP);
     // 提案一式で共有する総時間予算。多数のpuzSearch呼び出しの合計を抑えてポップアップの固まりを防ぐ。
     // 深読みONのときは少し長めに許容する。
-    try { window.__PUZ_GLOBAL_DEADLINE = Date.now() + (deep ? 2500 : 1100); } catch (e) { }
+    try { window.__PUZ_GLOBAL_DEADLINE = Date.now() + (deep ? 2800 : 1600); if (typeof __puzMemo !== 'undefined') __puzMemo.clear(); } catch (e) { }
     const safeCompute = (fn, label) => {
       try {
         return fn() || [];
@@ -8760,18 +8759,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
     }
 
-    // 空き枠がない場合、パズル提案を追加（4手先まで探索）
-    if (out.length === 0) {
-      try {
-        const puzzleSuggestions = computePuzzleSuggestions(id);
-        if (puzzleSuggestions && puzzleSuggestions.length > 0) {
-          // パズル提案を追加（最大5件）
-          out.push(...puzzleSuggestions.slice(0, 5));
-        }
-      } catch (e) {
-        console.error('パズル提案計算エラー:', e);
-      }
-    }
+    // 空き枠がない場合のパズル提案は「先読み」タブ側（computePuzzleSuggestions）で計算するため、
+    // ここでは重ねて探索しない（同じ探索を2回行い時間を浪費していた）
 
     out.sort((a, b) => b.score - a.score);
     return out.slice(0, 14);
@@ -17442,6 +17431,28 @@ function puzEvalMove(moves, mid) {
   });
 }
 
+// 1ノード分の全移動を一度の仮適用・一度の索引構築で評価する（従来は移動ごとに索引を作り直していた）
+function puzEvalAll(moves) {
+  return puzWithTempMoves(moves, () => {
+    const idx = buildIndex();
+    return moves.map(m => {
+      const it = state.items[m.id];
+      if (!it) return { mid: m.id, blocks: ['不明'], warns: [], blockers: [] };
+      const v = validatePlacement(m.id, m.day, m.period, 'safe', null) || { blocks: ['不明'], warns: [] };
+      const blockers = puzBlockerIdsFromIdx(it, m.id, m.day, m.period, idx);
+      return { mid: m.id, blocks: (v.blocks || []), warns: (v.warns || []), blockers };
+    });
+  });
+}
+// 「基準の移動を適用し、さらに id を盤面から外した状態」で fn を実行する（候補枠を一括評価するため）
+function puzWithBaseAndRemoved(baseMovesArr, id, fn) {
+  return puzWithTempMoves(baseMovesArr, () => {
+    const bk = state.placements[id];
+    state.placements[id] = null; invalidateIndex();
+    try { return fn(); } finally { state.placements[id] = bk; invalidateIndex(); }
+  });
+}
+
 function puzIsMovable(id, moveById) {
   if (!id) return false;
   if (moveById[id]) return false;
@@ -17454,22 +17465,28 @@ function puzCandidateSlots(id, baseMovesArr) {
   const out = [];
   const curPlc = state.placements[id];
 
-  for (const day of DAYS) {
-    const maxP = maxPeriod(day);
-    for (let p = 1; p <= maxP; p++) {
-      if ((it.span || 1) === 2 && p === maxP) continue;
-      if (curPlc && curPlc.day === day && curPlc.period === p) continue;
-
-      const testMoves = [...baseMovesArr, { id, day, period: p, span: it.span || 1 }];
-      const info = puzWithTempMoves(testMoves, () => {
-        const idx = buildIndex();
+  // 高速化: 基準の移動を一度だけ適用し、id を盤面から外した状態で全枠を評価する
+  // （従来は枠ごとに仮適用→索引構築を繰り返しており、1回の探索で数百回の索引構築が発生していた）
+  const infos = puzWithBaseAndRemoved(baseMovesArr, id, () => {
+    const idx = buildIndex();
+    const arr = [];
+    for (const day of DAYS) {
+      const maxP = maxPeriod(day);
+      for (let p = 1; p <= maxP; p++) {
+        if ((it.span || 1) === 2 && p === maxP) continue;
+        if (curPlc && curPlc.day === day && curPlc.period === p) continue;
         const v = validatePlacement(id, day, p, 'safe', null) || { blocks: ['不明'], warns: [] };
         const blockers = puzBlockerIdsFromIdx(it, id, day, p, idx);
-        // 連鎖の移動先も「同科目の同日重複・教科連続・教員の中抜け」を避ける（上手くハマる手を優先）
         let soft = 0;
         try { if (typeof softPlacementPenalty === 'function') soft = softPlacementPenalty(id, day, p); } catch (e) { }
-        return { v, blockers, soft };
-      });
+        arr.push({ day, p, v, blockers, soft });
+      }
+    }
+    return arr;
+  });
+  for (const info of infos) {
+    const { day, p } = info;
+    {
 
       const blocks = info.v.blocks || [];
       const warns = info.v.warns || [];
@@ -17505,15 +17522,24 @@ function puzCandidateSlots(id, baseMovesArr) {
 }
 
 
-function puzSearch(targetId, targetDay, targetP) {
+// 提案一式の間だけ有効な探索結果メモ（同じ目的枠を「連動」「パズル」など複数の計算が重ねて探すのを防ぐ）
+const __puzMemo = { map: new Map(), clear() { this.map.clear(); } };
+function puzSearch(targetId, targetDay, targetP, opts = {}) {
   const tIt = state.items[targetId]; if (!tIt) return null;
+  const __maxLimit = Math.max(2, Math.min(PUZ_CFG.MAX_INVOLVED, opts.maxLimit || PUZ_CFG.MAX_INVOLVED));
+  const __memoKey = `${targetId}|${targetDay}|${targetP}`;
+  const memo = __puzMemo.map.get(__memoKey);
+  if (memo) {
+    if (memo.moves) return memo.moves;               // 既に解が見つかっている
+    if (memo.exhausted >= __maxLimit) return null;   // この手数までは解なしと確定済み
+  }
 
   let visits = 0;
   const seen = new Set();
   // 実時間の締切。満杯の時間割では候補評価ごとに全コマのindexを作り直すため探索が重く、
   // visits 上限だけでは長時間ブロックし得る。締切を超えたら中断フラグで全dfsを即座に畳む。
   const __puzStart = Date.now();
-  const __PUZ_DEADLINE = (typeof window !== 'undefined' && window.__PUZ_DEADLINE_MS) || 100;
+  const __PUZ_DEADLINE = opts.maxMs || (typeof window !== 'undefined' && window.__PUZ_DEADLINE_MS) || 100;
   // 1回のpuzSearchの締切に加え、提案一式(computeSuggestionPack)全体で共有する総締切も尊重する。
   // これにより多数のpuzSearch呼び出しの合計時間が膨らんでポップアップが固まるのを防ぐ。
   const __PUZ_GLOBAL = (typeof window !== 'undefined' && window.__PUZ_GLOBAL_DEADLINE) || 0;
@@ -17527,15 +17553,7 @@ function puzSearch(targetId, targetDay, targetP) {
     return ent;
   }
 
-  function pickNextConflict(moves) {
-    let worst = null;
-    for (const m of moves) {
-      const inf = puzEvalMove(moves, m.id);
-      if (inf.blocks.length === 0) continue;
-      if (!worst || (inf.blockers.length > worst.blockers.length)) worst = inf;
-    }
-    return worst;
-  }
+  let __limit = PUZ_CFG.MAX_INVOLVED; // 反復深化: まず少ない手数で解を探し、見つからなければ手数を増やす
 
   function dfs(moveById) {
     if (__puzAborted) return null; // 締切超過後は全探索を即座に畳む
@@ -17543,45 +17561,96 @@ function puzSearch(targetId, targetDay, targetP) {
     if (visits > PUZ_CFG.MAX_VISITS) return null;
     const now = Date.now();
     if (now - __puzStart > __PUZ_DEADLINE || (__PUZ_GLOBAL && now > __PUZ_GLOBAL)) { __puzAborted = true; return null; }
-    if (Object.keys(moveById).length > PUZ_CFG.MAX_INVOLVED) return null;
+    if (Object.keys(moveById).length > __limit) return null;
 
     const moves = Object.values(moveById);
 
-    for (const m of moves) {
-      const inf = puzEvalMove(moves, m.id);
+    // ノード内の全移動を一度に評価（索引構築1回）
+    const infs = puzEvalAll(moves);
+    let worst = null;
+    const mustMove = new Set(); // ぶつかっている全コマ＝最終的に必ず動かす必要があるコマ
+    for (const inf of infs) {
       if (inf.blocks.length && inf.blockers.length === 0) return null;
+      if (inf.blocks.length === 0) continue;
+      for (const b of inf.blockers) { if (!moveById[b]) mustMove.add(b); }
+      // 動かせないコマ（ロック等）とぶつかっていたらこの枝は詰み
+      if (inf.blockers.some(b => !puzIsMovable(b, moveById))) return null;
+      // 最も選択肢の少ない（ぶつかりの少ない）移動から片付ける
+      if (!worst || (inf.blockers.length < worst.blockers.length)) worst = inf;
     }
+    // 下限枝刈り: 残り手数より「必ず動かすコマ」が多ければ、この手数上限では解けない
+    const remaining = __limit - moves.length;
+    if (mustMove.size > remaining) return null;
 
     const sig = keyOf(moveById);
     if (seen.has(sig)) return null;
     seen.add(sig);
 
-    const worst = pickNextConflict(moves);
     if (!worst) {
       const sim = simulateMoves(moves);
       return sim.ok ? moves : null;
     }
 
-    const blockers = (worst.blockers || []).filter(b => puzIsMovable(b, moveById));
-    if (!blockers.length) return null;
-
-    for (const blk of blockers) {
-      const baseMovesArr = Object.values(moveById);
-      const slots = puzCandidateSlots(blk, baseMovesArr);
-      for (const s of slots) {
-        const bit = state.items[blk];
-        const next = { ...moveById };
-        next[blk] = { id: blk, day: s.day, period: s.p, span: bit?.span || 1 };
-        const res = dfs(next);
-        if (res) return res;
-      }
+    // ぶつかっているコマは全員いずれ動かすので、1つに絞って枝分かれさせる
+    // （A→B の順と B→A の順は同じ最終形に至るため、順列の重複探索を省く）
+    const blk = (worst.blockers || []).find(b => puzIsMovable(b, moveById));
+    if (!blk) return null;
+    const baseMovesArr = Object.values(moveById);
+    const slots = puzCandidateSlots(blk, baseMovesArr);
+    const remAfter = remaining - 1; // このコマを動かした後に残る手数
+    for (const s of slots) {
+      // 移動先で新たにぶつかる数が残り手数を超える枝は読まない
+      if ((s.blockersN || 0) > remAfter) continue;
+      if (__puzAborted) return null;
+      const bit = state.items[blk];
+      const next = { ...moveById };
+      next[blk] = { id: blk, day: s.day, period: s.p, span: bit?.span || 1 };
+      const res = dfs(next);
+      if (res) return res;
     }
     return null;
   }
 
   const init = {};
   init[targetId] = { id: targetId, day: targetDay, period: targetP, span: tIt.span || 1 };
-  return dfs(init);
+  // 反復深化: 2手→3手→…と手数の上限を広げながら探す。短い手順を優先しつつ、
+  // 時間が許す限り「何手も先」まで深く読む。
+  const startLim = Math.max(2, (memo && memo.exhausted ? memo.exhausted + 1 : 2));
+  for (let lim = startLim; lim <= __maxLimit; lim++) {
+    __limit = lim;
+    seen.clear();
+    const res = dfs(init);
+    if (res) { __puzMemo.map.set(__memoKey, { moves: res }); return res; }
+    if (__puzAborted || visits > PUZ_CFG.MAX_VISITS) return null; // 時間切れ: 確定ではないので記録しない
+    __puzMemo.map.set(__memoKey, { exhausted: lim });            // この手数では解なしと確定
+  }
+  return null;
+}
+
+// 2段階探索: まず全目的枠を短時間・少ない手数で当たり、残り時間で未解決の有望な枠を深く読む。
+// 従来は目的枠ごとに固定の締切を使っていたため、後ろの枠はほとんど探索されなかった。
+function puzSearchTwoPass(id, targets, budgetMs) {
+  const start = Date.now();
+  const globalDl = (typeof window !== 'undefined' && window.__PUZ_GLOBAL_DEADLINE) || 0;
+  const deadline = Math.min(start + budgetMs, globalDl || Infinity);
+  const left = () => deadline - Date.now();
+  const found = new Map();
+  const unsolved = [];
+  // 1段目: 速い浅読み（〜3手）
+  for (const t of targets) {
+    if (left() <= 0) break;
+    const r = puzSearch(id, t.day, t.p, { maxMs: Math.min(40, left()), maxLimit: 3 });
+    if (r) found.set(t.day + t.p, r); else unsolved.push(t);
+  }
+  // 2段目: 残り時間を未解決の枠に配分して深読み（最大手数まで）
+  for (let i = 0; i < unsolved.length; i++) {
+    const rem = left(); if (rem <= 15) break;
+    const t = unsolved[i];
+    const per = Math.max(60, Math.min(400, Math.floor(rem / (unsolved.length - i))));
+    const r = puzSearch(id, t.day, t.p, { maxMs: per });
+    if (r) found.set(t.day + t.p, r);
+  }
+  return found;
 }
 
 function computePuzzleSuggestions(id) {
@@ -17610,9 +17679,10 @@ function computePuzzleSuggestions(id) {
   const candTargets = targets.slice(0, PUZ_CFG.MAX_TARGETS);
 
   const out = [];
+  const foundMap = puzSearchTwoPass(id, candTargets, 900);
   for (const t of candTargets) {
     if (out.length >= PUZ_CFG.MAX_SUGS) break;
-    const moves = puzSearch(id, t.day, t.p);
+    const moves = foundMap.get(t.day + t.p);
     if (!moves) continue;
 
     const moves2 = moves.map(m => {
@@ -19103,6 +19173,18 @@ function clearOverlays() {
     const curPlc = state.placements[id];
     const CANDS = clampInt(opts.cands, 8, 30, 22);
     const MAX_BLOCKERS = clampInt(opts.maxBlockers, 2, 6, 5);
+    // 高速化: 全枠を一度の仮適用で評価
+    const infoMap = puzWithBaseAndRemoved(baseMovesArr, id, () => {
+      const idx = buildIndex(); const mp = {};
+      for (const day of DAYS) {
+        const maxP = maxPeriod(day);
+        for (let p = 1; p <= maxP; p++) {
+          const v = validatePlacement(id, day, p, 'safe', null) || { blocks: ['不明'], warns: [] };
+          mp[day + p] = { v, blockers: puzBlockerIdsFromIdx(it, id, day, p, idx) };
+        }
+      }
+      return mp;
+    });
 
     for (const day of DAYS) {
       const maxP = maxPeriod(day);
@@ -19110,13 +19192,8 @@ function clearOverlays() {
         if ((it.span || 1) === 2 && p === maxP) continue;
         if (curPlc && curPlc.day === day && curPlc.period === p) continue;
 
-        const testMoves = [...baseMovesArr, { id, day, period: p, span: it.span || 1 }];
-        const info = puzWithTempMoves(testMoves, () => {
-          const idx = buildIndex();
-          const v = validatePlacement(id, day, p, 'safe', null) || { blocks: ['不明'], warns: [] };
-          const blockers = puzBlockerIdsFromIdx(it, id, day, p, idx);
-          return { v, blockers, idx };
-        });
+        const info = infoMap[day + p];
+        if (!info) continue;
 
         const blocks = info.v.blocks || [];
         const warns = info.v.warns || [];
@@ -19237,14 +19314,13 @@ function clearOverlays() {
 
       const moves = Object.values(moveById);
 
-      let dead = false;
-      for (const m of moves) {
-        const inf = puzEvalMove(moves, m.id);
+      let dead = false; let worst = null;
+      for (const inf of puzEvalAll(moves)) {
         if (inf.blocks.length && inf.blockers.length === 0) { dead = true; break; }
+        if (inf.blocks.length === 0) continue;
+        if (!worst || (inf.blockers.length > worst.blockers.length)) worst = inf;
       }
       if (dead) continue;
-
-      const worst = pickWorstBlock(moves);
 
       if (!worst) {
         const sim = simulateMoves(moves);
@@ -19412,14 +19488,13 @@ function clearOverlays() {
       const moves = Object.values(moveById);
 
       // 明らかな詰み: blocksがあるのに blocker候補が取れない
-      let dead = false;
-      for (const m of moves) {
-        const inf = puzEvalMove(moves, m.id);
+      let dead = false; let worst = null;
+      for (const inf of puzEvalAll(moves)) {
         if (inf.blocks.length && inf.blockers.length === 0) { dead = true; break; }
+        if (inf.blocks.length === 0) continue;
+        if (!worst || (inf.blockers.length > worst.blockers.length)) worst = inf;
       }
       if (dead) continue;
-
-      const worst = pickWorstBlock(moves);
 
       if (!worst) {
         const sim = simulateMoves(moves);
