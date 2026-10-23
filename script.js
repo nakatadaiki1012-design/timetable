@@ -19314,12 +19314,17 @@ function clearOverlays() {
 
       const moves = Object.values(moveById);
 
-      let dead = false; let worst = null;
+      let dead = false; let worst = null; const mustMove = new Set();
       for (const inf of puzEvalAll(moves)) {
         if (inf.blocks.length && inf.blockers.length === 0) { dead = true; break; }
         if (inf.blocks.length === 0) continue;
-        if (!worst || (inf.blockers.length > worst.blockers.length)) worst = inf;
+        // ロック等で動かせないコマとぶつかる枝は詰み
+        if (inf.blockers.some(bk => !puzIsMovable(bk, moveById))) { dead = true; break; }
+        for (const bk of inf.blockers) { if (!moveById[bk]) mustMove.add(bk); }
+        if (!worst || (inf.blockers.length < worst.blockers.length)) worst = inf;
       }
+      // 下限枝刈り: 必ず動かすコマ数が残り手数を超える枝は読まない
+      if (!dead && moves.length + mustMove.size > maxInvolved) dead = true;
       if (dead) continue;
 
       if (!worst) {
@@ -19337,7 +19342,8 @@ function clearOverlays() {
       const blockers = (worst.blockers || []).filter(b => puzIsMovable(b, moveById));
       if (!blockers.length) continue;
 
-      const blkList = blockers.slice(0, deep ? 6 : 3);
+      // ぶつかっているコマは全員いずれ動かすので1つに絞る（A→B/B→A の順列重複を省く）
+      const blkList = blockers.slice(0, 1);
       for (const blk of blkList) {
         const baseMovesArr = moves;
         // 深い場合は候補スロットを多く取る
@@ -19488,12 +19494,17 @@ function clearOverlays() {
       const moves = Object.values(moveById);
 
       // 明らかな詰み: blocksがあるのに blocker候補が取れない
-      let dead = false; let worst = null;
+      let dead = false; let worst = null; const mustMove = new Set();
       for (const inf of puzEvalAll(moves)) {
         if (inf.blocks.length && inf.blockers.length === 0) { dead = true; break; }
         if (inf.blocks.length === 0) continue;
-        if (!worst || (inf.blockers.length > worst.blockers.length)) worst = inf;
+        // ロック等で動かせないコマとぶつかる枝は詰み
+        if (inf.blockers.some(bk => !puzIsMovable(bk, moveById))) { dead = true; break; }
+        for (const bk of inf.blockers) { if (!moveById[bk]) mustMove.add(bk); }
+        if (!worst || (inf.blockers.length < worst.blockers.length)) worst = inf;
       }
+      // 下限枝刈り: 必ず動かすコマ数が残り手数を超える枝は読まない
+      if (!dead && moves.length + mustMove.size > maxInvolved) dead = true;
       if (dead) continue;
 
       if (!worst) {
@@ -19527,7 +19538,8 @@ function clearOverlays() {
       if (!blockers.length) continue;
 
       // 深読み: blockersを多めに試す（順序を少しランダム化）
-      const blkList = blockers.slice(0, deep ? 6 : 3);
+      // ぶつかっているコマは全員いずれ動かすので1つに絞る（A→B/B→A の順列重複を省く）
+      const blkList = blockers.slice(0, 1);
       for (const blk of blkList) {
         const baseMovesArr = moves;
         const slots = deep ? puzCandidateSlotsDeep(blk, baseMovesArr, { cands: 20, maxBlockers: 5 }) : puzCandidateSlots(blk, baseMovesArr);
