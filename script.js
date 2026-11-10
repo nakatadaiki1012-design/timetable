@@ -5047,6 +5047,37 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return key.includes(q);
   }
 
+  // コマの文字を「1行・はみ出さない最大サイズ」に合わせる。
+  // まとめて読み取ってからまとめて書き込み、再計算(レイアウト)を最小限にする。
+  function fitLessonText() {
+    const root = document.getElementById('grid'); if (!root) return;
+    const els = root.querySelectorAll('.timetable td .lesson .l1 .subj, .timetable td .lesson .l2');
+    const MIN = 7;
+    for (const el of els) if (el.style.fontSize) el.style.fontSize = '';
+    const reads = [];
+    for (const el of els) {
+      const sw = el.scrollWidth, cw = el.clientWidth;
+      if (!cw || sw <= cw + 0.5) continue;
+      reads.push([el, parseFloat(getComputedStyle(el).fontSize) || 11, cw / sw]);
+    }
+    for (const [el, fs, r] of reads) {
+      el.style.setProperty('font-size', Math.max(MIN, Math.floor(fs * r * 10) / 10) + 'px', 'important');
+    }
+  }
+  let __fitQueued = false;
+  function queueFitLessonText() {
+    if (__fitQueued) return; __fitQueued = true;
+    requestAnimationFrame(() => { __fitQueued = false; try { fitLessonText(); } catch (e) { } });
+  }
+  (function watchGridForFit() {
+    const start = () => {
+      const g = document.getElementById('grid'); if (!g) return;
+      new MutationObserver(queueFitLessonText).observe(g, { childList: true, subtree: true });
+      window.addEventListener('resize', queueFitLessonText);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  })();
+
   function renderGrid() {
     const root = $('#grid'); if (!root) return;
     const mode = state.ui.viewMode;
