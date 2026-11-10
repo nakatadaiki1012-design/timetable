@@ -5047,6 +5047,37 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return key.includes(q);
   }
 
+  // コマの文字を「1行・はみ出さない最大サイズ」に合わせる。
+  // まとめて読み取ってからまとめて書き込み、再計算(レイアウト)を最小限にする。
+  function fitLessonText() {
+    const root = document.getElementById('grid'); if (!root) return;
+    const els = root.querySelectorAll('.timetable td .lesson .l1 .subj, .timetable td .lesson .l2');
+    const MIN = 7;
+    for (const el of els) if (el.style.fontSize) el.style.fontSize = '';
+    const reads = [];
+    for (const el of els) {
+      const sw = el.scrollWidth, cw = el.clientWidth;
+      if (!cw || sw <= cw + 0.5) continue;
+      reads.push([el, parseFloat(getComputedStyle(el).fontSize) || 11, cw / sw]);
+    }
+    for (const [el, fs, r] of reads) {
+      el.style.setProperty('font-size', Math.max(MIN, Math.floor(fs * r * 10) / 10) + 'px', 'important');
+    }
+  }
+  let __fitQueued = false;
+  function queueFitLessonText() {
+    if (__fitQueued) return; __fitQueued = true;
+    requestAnimationFrame(() => { __fitQueued = false; try { fitLessonText(); } catch (e) { } });
+  }
+  (function watchGridForFit() {
+    const start = () => {
+      const g = document.getElementById('grid'); if (!g) return;
+      new MutationObserver(queueFitLessonText).observe(g, { childList: true, subtree: true });
+      window.addEventListener('resize', queueFitLessonText);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  })();
+
   function renderGrid() {
     const root = $('#grid'); if (!root) return;
     const mode = state.ui.viewMode;
@@ -15052,7 +15083,19 @@ function buildIndex(){
       const maxC = teacherConsecMax(tea);
       if (maxC == null) continue;
       for (const d of DAYS) {
-        const run = teacherConsecRun(tea, d); // {best, bestRun}
+        // teacherConsecRun は「最長連続数」(数値)だけを返すため、ここで最長区間の時限も求める
+        // （以前は {best, bestRun} を期待しており、「🤖 解決」ボタンが毎回エラーで止まっていた）
+        const run = (() => {
+          const lunchAfter = Number(state.settings.lunchAfter || 0);
+          const maxP = maxPeriod(d);
+          let best = 0, bestRun = [], cur = [];
+          for (let p = 1; p <= maxP; p++) {
+            if (lunchAfter && p === lunchAfter + 1) cur = [];
+            if ((idx.tea?.[tea]?.[d]?.[p] || []).length) { cur.push(p); if (cur.length > best) { best = cur.length; bestRun = cur.slice(); } }
+            else cur = [];
+          }
+          return { best, bestRun };
+        })();
         if (run.best <= maxC) continue;
         const over = run.best - maxC;
         const teaAbbr = tcfg.abbr || tea;
@@ -17030,6 +17073,9 @@ function buildIndex(){
       if (ev.key === 'Escape') {
         const overlay = document.getElementById('sug-popup-overlay');
         if (overlay && overlay.style.display !== 'none') { closeSuggestionPopup(); return; }
+        // 画面を大きく覆う「教員一覧／クラス一覧」窓は Esc で閉じる（以前は×ボタンでしか閉じられなかった）
+        const atw = [...document.querySelectorAll('#float-layer [data-id^="__all_"]')].pop();
+        if (atw && !state.ui.selectedId) { atw.remove(); return; }
         clearValidSlots(); state.ui.selectedId = null; state.ui.selectedFrom = ''; rerenderEdit();
       }
       if (ev.key === 'Delete' || ev.key === 'Backspace') {
@@ -17153,16 +17199,8 @@ function buildIndex(){
     });
 
     // 問題分析ボタン
-    const btnAnalyze = document.getElementById('btn-analyze');
-    if (btnAnalyze) {
-      btnAnalyze.onclick = () => {
-        if (typeof showProblemAnalysisPanel === 'function') {
-          showProblemAnalysisPanel();
-        } else {
-          console.warn('showProblemAnalysisPanel not available');
-        }
-      };
-    }
+    // 📊ボタンには既に「時間割分析」（修正ボタン付き）が付いている。
+    // ここで別の分析窓も付けていたため、1回押すと2つの窓が重なって開いていた。二重登録をやめる。
 
     // ─── F1: グリッド複数選択 ───
     document.getElementById('btn-grid-multi-stock')?.addEventListener('click', () => {
@@ -18851,6 +18889,25 @@ function clearOverlays() {
       problems.statistics.avgScore = totalScore / problems.statistics.placedItems;
     }
 
+    // 同じ科目・クラスの「配置困難」が何十行も並ぶのをまとめる（例: 配置困難: 美Ⅰ 1-2 ×2コマ）
+    {
+      const grouped = new Map(); const rest = [];
+      for (const p of problems.critical) {
+        if (p.type !== 'unplaced_hard') { rest.push(p); continue; }
+        const key = getItemLabel(p.itemId) + ' ' + ((state.items[p.itemId]?.cls || []).join(','));
+        const g = grouped.get(key);
+        if (g) { g.count++; g.difficulty = Math.max(g.difficulty, p.difficulty || 0); }
+        else grouped.set(key, { ...p, count: 1 });
+      }
+      for (const g of grouped.values()) {
+        g.message = `配置できていない: ${getItemLabel(g.itemId)} ${(state.items[g.itemId]?.cls || []).join(',')}` + (g.count > 1 ? ` ×${g.count}コマ` : '');
+        rest.push(g);
+      }
+      problems.critical = rest;
+    }
+    // 上の数字と下の一覧の件数をそろえる（以前は上が0なのに一覧が24件と食い違っていた）
+    problems.statistics.itemsWithCritical = problems.critical.reduce((a, p) => a + (p.count || 1), 0);
+
     // 問題を重要度順にソート
     problems.critical.sort((a, b) => (b.difficulty || 0) - (a.difficulty || 0));
     problems.warnings.sort((a, b) => (a.score || 100) - (b.score || 100));
@@ -18906,7 +18963,7 @@ function clearOverlays() {
         現在の時間割の問題を分析しました
       </div>
     </div>
-    <button onclick="this.closest('[style*=fixed]').remove()" style="
+    <button class="pa-close" title="閉じる (Esc)" style="
       background: none;
       border: none;
       font-size: 24px;
@@ -18971,7 +19028,7 @@ function clearOverlays() {
       <div style="margin-bottom: 24px;">
         <h3 style="font-size: 16px; font-weight: bold; color: #ef4444; margin: 0 0 12px 0; display: flex; align-items: center; gap: 8px;">
           <span style="display: inline-block; width: 8px; height: 8px; background: #ef4444; border-radius: 50%;"></span>
-          重大問題 (${problems.critical.length}件)
+          重大問題 (${problems.statistics.itemsWithCritical}件)
         </h3>
         <div style="display: flex; flex-direction: column; gap: 8px;">
           ${problems.critical.slice(0, 10).map(p => `
@@ -19056,10 +19113,13 @@ function clearOverlays() {
     background: rgba(0, 0, 0, 0.5);
     z-index: 10000;
   `;
-    overlay.onclick = () => {
-      overlay.remove();
-      modal.remove();
-    };
+    // ×・背景クリック・Esc のどれでも、窓と暗い背景を両方閉じる
+    // （以前は×で窓だけ消え、背景が残って画面が一切クリックできなくなっていた）
+    const close = () => { overlay.remove(); modal.remove(); document.removeEventListener('keydown', onKey, true); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); close(); } };
+    overlay.onclick = close;
+    const xb = modal.querySelector('.pa-close'); if (xb) xb.onclick = close;
+    document.addEventListener('keydown', onKey, true);
 
     document.body.appendChild(overlay);
     document.body.appendChild(modal);

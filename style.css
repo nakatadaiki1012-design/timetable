@@ -7641,3 +7641,19 @@ body.qab-on footer.status .muted.small { visibility: hidden; }
   .placement-progress-track { width: 60px !important; }
   .placement-progress-label { font-size: 10px; }
 }
+
+/* ===== コマの見やすさ改善（クラス/教員/教室 共通） =====
+   コマ幅が狭いと科目名「物基」が「物/基」のように1文字ずつ縦に割れていた。
+   科目名・2行目とも必ず1行で表示し、はみ出す分だけ script.js の fitLessonText が文字を縮める。 */
+.timetable td .lesson { padding-left: 2px !important; padding-right: 1px !important; }
+.timetable td .lesson .l1 .subj {
+  white-space: nowrap !important; display: block !important; -webkit-line-clamp: unset !important;
+  overflow: hidden; text-overflow: clip; letter-spacing: -.03em; line-height: 1.12;
+  font-size: calc(var(--sub) + var(--subAdj) + 1px) !important;
+}
+.timetable td .lesson .l2, .timetable td .lesson .l2 * {
+  white-space: nowrap !important; -webkit-line-clamp: unset !important;
+  overflow: hidden; text-overflow: clip; letter-spacing: -.03em;
+}
+.timetable td .lesson .l2 { display: block !important; line-height: 1.1; }
+.timetable td .lesson .l2 .teacher { display: inline !important; font-size: inherit !important; }
