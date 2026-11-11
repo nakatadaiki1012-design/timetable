@@ -7736,3 +7736,24 @@ body.mobile:not([data-mday="all"]) .timetable col[data-colkey="_row"] { width: 6
 body.mobile #view-edit > .toolbar .group:has(#btn-ai) { flex: 0 0 auto; width: auto; }
 body.mobile #view-edit > .toolbar .group:has(#btn-ai) #ai-status-wrap { display: none !important; }
 body.mobile #view-edit > .toolbar { margin: 4px 6px; }
+
+/* ===== スマホ表示: 各タブ・別窓の調整 ===== */
+/* 上部操作は折り返して全ボタンを見えるように（データ登録のCSV保存などが切れていた） */
+body.mobile .view > .toolbar .row { flex-wrap: wrap !important; }
+body.mobile .view > .toolbar { overflow: visible; }
+/* 印刷プレビュー: 表が画面より広いときは横にスクロールできるように */
+body.mobile #print-area { overflow-x: auto; max-width: 100vw; -webkit-overflow-scrolling: touch; }
+body.mobile .print-layout { overflow-x: auto; }
+/* 教員一覧・クラス一覧・別窓: 画面いっぱいに開き、×と検索が必ず画面内に来るように */
+body.mobile .float-win {
+  left: 0 !important; top: 0 !important; width: 100vw !important; height: 100dvh !important;
+  min-width: 0 !important; max-width: 100vw !important; border-radius: 0 !important; transform: none !important;
+}
+body.mobile .float-win .float-head { flex-wrap: wrap; gap: 6px; padding: 8px; cursor: default; }
+body.mobile .float-win .float-head .spacer { display: none; }
+body.mobile .float-win .atw-search { flex: 1 1 140px; min-width: 0; }
+body.mobile .float-win [data-act="close-atw"], body.mobile .float-win .float-head .btn:last-child { min-width: 44px; min-height: 36px; font-size: 18px; }
+body.mobile .float-win .float-resize-handle { display: none; }
+body.mobile .atw-tiles { justify-content: center; }
+/* 設定画面のカードは1列で余白を詰める */
+body.mobile .settings-grid { grid-template-columns: 1fr !important; padding: 8px !important; gap: 8px !important; }
