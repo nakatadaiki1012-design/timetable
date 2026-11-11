@@ -225,6 +225,7 @@
       <button id="btn-ai-wizard" class="btn secondary" style="background:#dc2626;color:#fff;border:none;"
         title="AI問題提案ウィザード（優先度順に提案）">🤖 解決</button>
       <button id="btn-heatmap" class="btn secondary" title="違反ヒートマップ ON/OFF">🌡️</button>
+      <button id="btn-mobile-toggle" class="btn secondary" title="スマホ向けの画面とパソコン向けの画面を切り替え">📱 スマホ表示</button>
       <span class="hdr-sep" aria-hidden="true"></span>
       <button id="btn-all-teachers" class="btn secondary" title="全教員一覧（タイル表示）"
         style="background:#0e7490;border:none;">👥 教員一覧</button>
@@ -632,6 +633,19 @@
         </div>
       </div>
 
+      <!-- スマホ表示のときだけ出る操作バー: 曜日の切替と在庫の開閉 -->
+      <div id="mobile-bar" class="mobile-bar no-print">
+        <div class="mb-days" role="tablist" aria-label="表示する曜日">
+          <button class="mb-day" data-mday="Mon">月</button>
+          <button class="mb-day" data-mday="Tue">火</button>
+          <button class="mb-day" data-mday="Wed">水</button>
+          <button class="mb-day" data-mday="Thu">木</button>
+          <button class="mb-day" data-mday="Fri">金</button>
+          <button class="mb-day" data-mday="Sat">土</button>
+          <button class="mb-day" data-mday="all">全</button>
+        </div>
+        <button id="mb-stock" class="mb-stock">📦 在庫 <b id="mb-stock-count">0</b></button>
+      </div>
       <div class="edit-layout">
         <aside id="stock-panel" class="panel stock">
           <div class="panel-head">

@@ -4172,6 +4172,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     try { _atwRefreshAll(); } catch (e) { }
     // v49: 配置進捗バー更新
     try { updatePlacementProgress(); } catch (e) { }
+    try { updateMobileStockCount(); } catch (e) { }
     // F3: 検索ハイライト
     try { if (state.ui.itemSearchQuery) requestAnimationFrame(applyItemSearchHighlight); } catch (e) {}
     // F6: 制約オーバーレイ
@@ -5142,6 +5143,67 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
   })();
 
+  /* =======================
+     スマホ表示（画面幅が狭い端末向けの切替）
+     - 1曜日ずつ表示して文字を大きく、在庫は下から出る引き出しに、詳細欄は畳む
+     - 端末の幅で自動判定し、ヘッダーの「📱」ボタンでいつでも切替（選択は端末に記憶）
+  ======================= */
+  const MOBILE_KEY = 'tt_mobile_mode';
+  function wantMobile() {
+    let v = null; try { v = localStorage.getItem(MOBILE_KEY); } catch (e) { }
+    if (v === '1') return true; if (v === '0') return false;
+    return window.innerWidth <= 760;
+  }
+  function setMobileDay(d) {
+    const days = activeDays ? activeDays() : DAYS;
+    if (d !== 'all' && !days.includes(d)) d = days[0] || 'Mon';
+    document.body.dataset.mday = d;
+    document.querySelectorAll('#mobile-bar .mb-day').forEach(b => {
+      b.classList.toggle('on', b.dataset.mday === d);
+      b.style.display = (b.dataset.mday === 'all' || days.includes(b.dataset.mday)) ? '' : 'none';
+    });
+  }
+  function applyMobileMode(on) {
+    document.body.classList.toggle('mobile', on);
+    if (!on) document.body.classList.remove('stock-open');
+    const btn = document.getElementById('btn-mobile-toggle');
+    if (btn) btn.textContent = on ? '🖥 PC表示' : '📱 スマホ表示';
+    if (on && !document.body.dataset.mday) {
+      const today = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date().getDay()];
+      setMobileDay(today);
+    } else if (on) setMobileDay(document.body.dataset.mday);
+    try { queueFitLessonText(); } catch (e) { }
+  }
+  function updateMobileStockCount() {
+    const el = document.getElementById('mb-stock-count'); if (!el) return;
+    const n = Object.keys(state.items).filter(id => !state.placements[id]?.day).length;
+    el.textContent = n;
+  }
+  (function initMobileMode() {
+    const start = () => {
+      applyMobileMode(wantMobile());
+      document.getElementById('btn-mobile-toggle')?.addEventListener('click', () => {
+        const on = !document.body.classList.contains('mobile');
+        try { localStorage.setItem(MOBILE_KEY, on ? '1' : '0'); } catch (e) { }
+        applyMobileMode(on);
+      });
+      document.querySelectorAll('#mobile-bar .mb-day').forEach(b => b.addEventListener('click', () => { setMobileDay(b.dataset.mday); queueFitLessonText(); }));
+      document.getElementById('mb-stock')?.addEventListener('click', () => { updateMobileStockCount(); document.body.classList.toggle('stock-open'); });
+      // 在庫のコマを選んだら引き出しを閉じ、時間割のマスをタップして置けるようにする
+      document.getElementById('stock-list')?.addEventListener('click', (e) => {
+        if (!document.body.classList.contains('mobile')) return;
+        if (e.target.closest('.lesson, .stock-card, [data-id]')) setTimeout(() => document.body.classList.remove('stock-open'), 120);
+      });
+      // 端末の向きを変えた時など、記憶した選択が無ければ幅で自動判定し直す
+      window.addEventListener('resize', () => {
+        let v = null; try { v = localStorage.getItem(MOBILE_KEY); } catch (e) { }
+        if (v == null) applyMobileMode(wantMobile());
+      });
+      updateMobileStockCount();
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  })();
+
   function renderGrid() {
     const root = $('#grid'); if (!root) return;
     const mode = state.ui.viewMode;
@@ -5153,7 +5215,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     let html = `<table class="timetable"><thead><tr><th>${mode === 'teacher' ? '教員' : mode === 'class' ? 'クラス' : '教室'}</th>`;
     for (const d of adays) {
       const sepCls = (d !== lastDay) ? ' day-sep' : '';
-      html += `<th colspan="${maxPeriod(d)}" class="${sepCls.trim()}">${DAYJP[d]}</th>`;
+      html += `<th colspan="${maxPeriod(d)}" data-day="${d}" class="${sepCls.trim()}">${DAYJP[d]}</th>`;
     }
     html += `</tr><tr><th></th>`;
     for (const d of adays) {
@@ -5460,6 +5522,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const c = document.createElement('col');
         const key = (th.dataset.day || '') + (th.dataset.p || th.textContent.trim());
         c.dataset.colkey = key;
+        if (th.dataset.day) c.dataset.day = th.dataset.day; // スマホ表示で曜日ごとに列を隠すため
         if (state.ui.colWidths[key]) c.style.width = state.ui.colWidths[key] + 'px';
         colgroup.appendChild(c);
       }

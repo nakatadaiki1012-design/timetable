@@ -7657,3 +7657,82 @@ body.qab-on footer.status .muted.small { visibility: hidden; }
 }
 .timetable td .lesson .l2 { display: block !important; line-height: 1.1; }
 .timetable td .lesson .l2 .teacher { display: inline !important; font-size: inherit !important; }
+
+/* =====================================================================
+   スマホ表示（body.mobile）
+   1曜日ずつ大きく表示 / 在庫は下からの引き出し / 詳細欄とヒント帯は隠す
+   ===================================================================== */
+.mobile-bar { display: none; }
+body.mobile { font-size: 14px; }
+/* ヘッダー: 2段の横スクロールに詰める */
+body.mobile .app-header { flex-direction: column; align-items: stretch; height: auto !important; min-height: 0; padding: 4px 6px; gap: 2px; }
+body.mobile .app-header .brand, body.mobile .app-header .hdr-sep, body.mobile .app-header .autosave { display: none !important; }
+body.mobile .header-left { overflow-x: auto; scrollbar-width: none; }
+body.mobile .header-left .tabs { flex-wrap: nowrap; }
+body.mobile .app-header .tab { padding: 8px 8px 6px; font-size: 13px; }
+body.mobile .header-right { flex-wrap: nowrap !important; overflow-x: auto !important; justify-content: flex-start; scrollbar-width: none; padding-bottom: 2px; }
+body.mobile .header-right .btn { flex: 0 0 auto; padding: 6px 8px !important; font-size: 12px !important; }
+body.mobile #placement-progress { order: 3; }
+body.mobile .placement-progress-track { width: 80px !important; }
+/* 作成画面の上部操作: 「表示」と「検索」「AI」だけ残す */
+body.mobile #view-edit > .toolbar { padding: 4px 6px; }
+body.mobile #view-edit > .toolbar .group:has(input[name=tool]),
+body.mobile #view-edit > .toolbar .group:has(#btn-font-down),
+body.mobile #row-filter { display: none !important; }
+body.mobile #view-edit > .toolbar .group { padding: 4px 8px; }
+body.mobile #view-edit > .toolbar .label { font-size: 13px; }
+body.mobile #item-search { width: 150px; }
+/* 曜日切替と在庫ボタン */
+body.mobile .mobile-bar { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: #fff; border-bottom: 1px solid #e2e8f0; position: sticky; top: 0; z-index: 20; }
+body.mobile .mb-days { display: flex; gap: 4px; flex: 1; overflow-x: auto; }
+body.mobile .mb-day { min-width: 40px; height: 36px; border: 1px solid #cbd5e1; border-radius: 10px; background: #f8fafc; font-weight: 800; font-size: 15px; color: #334155; }
+body.mobile .mb-day.on { background: #2563eb; color: #fff; border-color: #2563eb; }
+body.mobile .mb-stock { height: 36px; padding: 0 12px; border-radius: 10px; border: none; background: #0f172a; color: #fff; font-weight: 800; white-space: nowrap; }
+/* 本体: 時間割を全幅に */
+body.mobile .edit-layout { display: block !important; grid-template-columns: none !important; }
+body.mobile #prop-panel, body.mobile footer.status, body.mobile .panel.grid > .panel-head { display: none !important; }
+body.mobile .panel.grid { width: 100%; margin: 0; border-radius: 0; }
+body.mobile .grid-wrapper { max-height: none; }
+/* 在庫: 下から出る引き出し */
+body.mobile #stock-panel {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 60vh; width: auto !important; max-width: none !important;
+  z-index: 60; border-radius: 16px 16px 0 0; box-shadow: 0 -10px 30px rgba(15,23,42,.25);
+  transform: translateY(105%); transition: transform .2s ease; display: flex !important; flex-direction: column;
+}
+body.mobile.stock-open #stock-panel { transform: translateY(0); }
+body.mobile #stock-panel .stock-shortcut-hint { display: none; }
+/* 1曜日だけ表示（曜日ごと） */
+body.mobile[data-mday="Mon"] .timetable [data-day]:not([data-day="Mon"]),
+body.mobile[data-mday="Tue"] .timetable [data-day]:not([data-day="Tue"]),
+body.mobile[data-mday="Wed"] .timetable [data-day]:not([data-day="Wed"]),
+body.mobile[data-mday="Thu"] .timetable [data-day]:not([data-day="Thu"]),
+body.mobile[data-mday="Fri"] .timetable [data-day]:not([data-day="Fri"]),
+body.mobile[data-mday="Sat"] .timetable [data-day]:not([data-day="Sat"]) { display: none !important; }
+body.mobile:not([data-mday="all"]) .timetable { min-width: 0 !important; width: 100% !important; table-layout: fixed; }
+body.mobile:not([data-mday="all"]) .timetable thead th:first-child, body.mobile:not([data-mday="all"]) .timetable tbody th { width: 64px !important; font-size: 13px; }
+body.mobile:not([data-mday="all"]) .timetable tbody tr { height: 52px; }
+body.mobile:not([data-mday="all"]) .timetable td .lesson .l1 .subj { font-size: 14px !important; }
+body.mobile:not([data-mday="all"]) .timetable td .lesson .l2 { font-size: 12px !important; }
+/* 下の操作バー: 指で押しやすく */
+body.mobile #quick-action-bar { left: 6px !important; right: 6px !important; transform: none !important; width: auto !important; max-width: none !important; bottom: 8px !important; justify-content: space-between; padding: 6px 8px !important; }
+body.mobile #quick-action-bar:not(.show) { transform: translateY(160px) !important; }
+body.mobile #quick-action-bar .qab-btn { padding: 8px 10px !important; font-size: 14px !important; }
+/* 提案ポップアップなどの窓は画面幅いっぱいに */
+body.mobile .modal, body.mobile #sug-popup-overlay > div { max-width: 100vw !important; }
+body.mobile .panel.grid { width: auto !important; min-width: 0 !important; }
+body.mobile .grid-wrapper { width: 100% !important; overflow-x: auto; }
+/* ヘッダー右側のボタン列は1行の横スクロールに */
+body.mobile .app-header .header-right { width: 100%; min-height: 34px; align-items: center; }
+/* 上部操作を1〜2行に詰める */
+body.mobile #view-edit > .toolbar .row { gap: 4px !important; }
+body.mobile #view-edit > .toolbar .group { margin: 0 !important; }
+body.mobile #view-edit > .toolbar .group:has(#btn-ai) .label { display: none; }
+/* 下の操作バーは科目名の欄を小さく */
+body.mobile #quick-action-bar .qab-info { flex: 0 1 auto; min-width: 0; max-width: 32%; overflow: hidden; }
+body.mobile #quick-action-bar .qab-chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.mobile #quick-action-bar .qab-actions { flex: 0 0 auto; gap: 4px; }
+body.mobile:not([data-mday="all"]) .timetable col { width: auto !important; }
+body.mobile:not([data-mday="all"]) .timetable col[data-colkey="_row"] { width: 64px !important; }
+body.mobile #view-edit > .toolbar .group:has(#btn-ai) { flex: 0 0 auto; width: auto; }
+body.mobile #view-edit > .toolbar .group:has(#btn-ai) #ai-status-wrap { display: none !important; }
+body.mobile #view-edit > .toolbar { margin: 4px 6px; }
