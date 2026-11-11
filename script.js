@@ -8395,7 +8395,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (lunchAfter && p === lunchAfter + 1) { add += teacherRunPenalty(L); L = 0; }
           if (set.has(p)) L++; else { add += teacherRunPenalty(L); L = 0; }
         }
-        pen += add * 3;
+        pen += add * 3 + (add >= 10 ? add * 9 : 0);
       }
     }
     // 時間帯の偏り: このクラスの同じ授業が既に1時間目/午後に多いのに、さらに同じ時間帯へ置く配置を減点
@@ -8410,8 +8410,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         n++; if (op.period === 1) first++; if (lunchAfter && op.period > lunchAfter) pm++;
       }
       if (n >= 2) {
-        if (period === 1) pen += Math.max(0, first - Math.max(1, Math.floor(n / 3))) * 6;
-        if (lunchAfter && period > lunchAfter) pen += Math.max(0, pm - Math.max(1, Math.ceil(n / 2))) * 4;
+        if (period === 1) pen += Math.max(0, first - Math.max(1, Math.floor(n / 3))) * 12;
+        if (lunchAfter && period > lunchAfter) pen += Math.max(0, pm - Math.max(1, Math.ceil(n / 2))) * 8;
       }
     }
     return pen;
@@ -8442,7 +8442,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (lunchAfter && p === lunchAfter + 1) { add += teacherRunPenalty(L); L = 0; }
           if (set.has(p)) L++; else { add += teacherRunPenalty(L); L = 0; }
         }
-        cost += add * 3;
+        cost += add * 3 + (add >= 10 ? add * 9 : 0); // 4連続以上は提案ではほぼ選ばない重さに
       }
     }
     // 同じ授業が1時間目ばかり・午後ばかりになっていないか（クラスごと・週全体）
@@ -8458,8 +8458,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
       for (const k in agg) {
         const a = agg[k]; if (a.n < 2) continue;
-        cost += Math.max(0, a.first - Math.max(1, Math.floor(a.n / 3))) * 6;
-        cost += Math.max(0, a.pm - Math.max(1, Math.ceil(a.n / 2))) * 4;
+        cost += Math.max(0, a.first - Math.max(1, Math.floor(a.n / 3))) * 12;
+        cost += Math.max(0, a.pm - Math.max(1, Math.ceil(a.n / 2))) * 8;
       }
     }
     for (const c of clsList) for (const d of days) {
