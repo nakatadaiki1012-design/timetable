@@ -5152,7 +5152,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   function wantMobile() {
     let v = null; try { v = localStorage.getItem(MOBILE_KEY); } catch (e) { }
     if (v === '1') return true; if (v === '0') return false;
-    return window.innerWidth <= 760;
+    // スマホ（幅760px以下）に加え、指で操作する端末ならタブレット(縦〜横の小さめ)もスマホ表示で始める
+    const touch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+    return window.innerWidth <= 760 || (touch && window.innerWidth <= 1100);
   }
   function setMobileDay(d) {
     const days = activeDays ? activeDays() : DAYS;
