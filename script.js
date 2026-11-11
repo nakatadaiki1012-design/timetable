@@ -1334,7 +1334,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         if (idx >= lines.length) break;
         const f1 = parseLine(lines[idx]);
         const id = parseInt(f1[0]);
-        const short = (f1[1] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−ー－]/g, '-');
+        const short = (f1[1] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−－]/g, '-').replace(/(\d)ー(?=\d)/g, '$1-');
         const full = (f1[2] || '').replace(/[　\s]/g, '');
         classes[id] = { short, full };
         idx += 3;
@@ -1404,7 +1404,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const name = f1[1] || '';
         const abbr = f1[3] || f1[2] || name; // 【A-3】科目と同じ f1[3]||f1[2] にそろえる
         const dept = (f2[3] || '').replace(/科$/, '');
-        const homeroom = (f2[4] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−ー－]/g, '-');
+        const homeroom = (f2[4] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−－]/g, '-').replace(/(\d)ー(?=\d)/g, '$1-');
         // 可用性文字列から出勤不可コマを取得 ('90' = 非勤務)
         const availLine = lines[idx + 2] || '';
         const availMatch = availLine.match(/"([0-9][^"]+)"/);
@@ -1426,7 +1426,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         if (idx >= lines.length) break;
         const f1 = parseLine(lines[idx]);
         const id = parseInt(f1[0]);
-        const name = (f1[1] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−ー－]/g, '-');
+        const name = (f1[1] || '').replace(/[　\s]/g, '').replace(/[１２３４５６７８９０]/g, s => String.fromCharCode(s.charCodeAt(0) - 0xFEE0)).replace(/[−－]/g, '-').replace(/(\d)ー(?=\d)/g, '$1-');
         const abbr = (f1[2] || name).replace(/[　\s]/g, '');
         if (id > 0 && name) rooms[id] = { name, abbr };
         idx += 3;
@@ -1558,8 +1558,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (dayNum >= 0 && dayNum < numDays && perNum >= 0 && perNum < numPeriods) {
             const seen = new Set();
             for (let e = 0; e < entryCount; e++) {
-              const jugyoId = parseInt((lines[idx + 2 + e] || '').split(',')[0], 10) || 0;
-              if (jugyoId > 0 && !seen.has(jugyoId)) { seen.add(jugyoId); cb(ent, jugyoId, DAY_KEYS[dayNum], perNum + 1); }
+              const ef = (lines[idx + 2 + e] || '').split(',');
+              const jugyoId = parseInt(ef[0], 10) || 0;
+              // 4番目の数値の十の位: 1x/2x=通常授業(JUGYO)の番号、3x/4x=同時展開ブロック(SJYUGYO)の番号。
+              // 従来は全てJUGYO番号として読み、例えば同時展開54「文/C312」を授業54「歴史総合」と取り違えていた。
+              const kind = Math.floor((parseInt(ef[3], 10) || 0) / 10);
+              const sk = (kind >= 3 ? 'S' : 'J') + jugyoId;
+              if (jugyoId > 0 && !seen.has(sk)) { seen.add(sk); cb(ent, jugyoId, DAY_KEYS[dayNum], perNum + 1, kind >= 3); }
             }
           }
           idx += 2 + entryCount + 1;
@@ -1573,7 +1578,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     // 乗る場合が合同授業。クラス集合はインスタンス単位で保持する（jugyo全体で束ねると
     // 別クラスのコマを誤って別クラスへ配置してしまうため）。
     const jugyoInstances = {}; // jugyo_id → { "day#period": {day, period, classes, teachers, rooms} }
-    walkJSection('J-CLASS', (ent, jugyoId, dayKey, period) => {
+    const sjInstances = {};    // SJYUGYO id → 同上（同時展開ブロック: 選択講座・校務分掌・自由選択など）
+    const instOf = (isSJ, id, dayKey, period, create) => {
+      const store = isSJ ? sjInstances : jugyoInstances;
+      if (!store[id]) { if (!create) return null; store[id] = {}; }
+      const key = dayKey + '#' + period;
+      if (!store[id][key]) { if (!create) return null; store[id][key] = { day: dayKey, period, classes: new Set(), teachers: new Set(), rooms: new Set() }; }
+      return store[id][key];
+    };
+    walkJSection('J-CLASS', (ent, jugyoId, dayKey, period, isSJ) => {
+      if (isSJ) {
+        const r = instOf(true, jugyoId, dayKey, period, true);
+        const c = classes[ent]; if (c) { const nm = c.full || c.short; if (nm) r.classes.add(nm); }
+        return;
+      }
       const inst = jugyoInstances[jugyoId] || (jugyoInstances[jugyoId] = {});
       const key = dayKey + '#' + period;
       const rec = inst[key] || (inst[key] = { day: dayKey, period, classes: new Set(), teachers: new Set(), rooms: new Set() });
@@ -1585,10 +1603,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     // 教員/教室もクラス同様インスタンス(jugyo,曜日,時限)単位で割当てる。jugyo全体で
     // 束ねると、インスタンスごとに担当が違う場合に別担当を全コマへ誤付与し二重予約になる。
     const jugyoToTeachers = {};  // 表示・未配置item用の全体集合（フォールバック）
-    walkJSection('J-Teach', (ent, jugyoId, dayKey, period) => {
+    walkJSection('J-Teach', (ent, jugyoId, dayKey, period, isSJ) => {
       const teacher = teachers[ent];
       const teacherName = teacher ? teacher.name : null;
       if (!teacherName) return;
+      if (isSJ) { instOf(true, jugyoId, dayKey, period, true).teachers.add(teacherName); return; }
       const arr = jugyoToTeachers[jugyoId] || (jugyoToTeachers[jugyoId] = []);
       if (!arr.includes(teacherName)) arr.push(teacherName);
       const rec = jugyoInstances[jugyoId] && jugyoInstances[jugyoId][dayKey + '#' + period];
@@ -1597,10 +1616,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // ── J-Room パース (教室→JUGYO割当) ── entityIdx = roomId
     const jugyoRooms = {};
-    walkJSection('J-Room', (ent, jugyoId, dayKey, period) => {
+    walkJSection('J-Room', (ent, jugyoId, dayKey, period, isSJ) => {
       const room = rooms[ent];
       const roomName = room ? room.name : null;
       if (!roomName) return;
+      if (isSJ) { instOf(true, jugyoId, dayKey, period, true).rooms.add(roomName); return; }
       const arr = jugyoRooms[jugyoId] || (jugyoRooms[jugyoId] = []);
       if (!arr.includes(roomName)) arr.push(roomName);
       const rec = jugyoInstances[jugyoId] && jugyoInstances[jugyoId][dayKey + '#' + period];
@@ -1804,10 +1824,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const sjCells = new Set();  // "class#day#period" 上書き対象
       const sjPlace = [];         // {subj, cls, teas, day, period, span}
       const electiveCells = {};   // "class#day#period" -> {label, real} 自選ブロックのラベル付け
+      const sjMeta = {};          // SJYUGYO id -> {name, real[], span, isHR}
       for (let c = 0; c <= sjCount; c++) {
         if (sidx >= lines.length) break;
         const hdr = parseLine(lines[sidx]);
         const name = hdr[1] || '';
+        const sjId = parseInt(hdr[0], 10) || 0;
         const memN = parseInt((lines[sidx + 2] || '').trim()) || 0;
         const members = [];
         for (let m = 0; m < memN; m++) members.push(parseLine(lines[sidx + 4 + m] || ''));
@@ -1821,6 +1843,17 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const lesson = lessons[lessonId];
         const subj = (lesson && lesson.name) || name;
         if (!subj) continue;
+        {
+          // 同時展開ブロックの名前と開講科目（member = [クラス番号, 科目番号, 教室番号, 教員番号]）
+          const real = [];
+          for (const mem of members) { const ln = lessons[parseInt(mem[1]) || 0]?.name; if (ln && !real.includes(ln)) real.push(ln); }
+          let bspan = 1;
+          for (const pp of perPeriods) { const st = parseInt(pp[3], 10), en = parseInt(pp[4], 10); if (!isNaN(st) && !isNaN(en) && en > st) bspan = Math.max(bspan, en - st + 1); }
+          const hw = subj.replace(/[Ａ-Ｚａ-ｚ]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+          // 表示名はイデアの時間割出力と同じ3つ目の名前（例: 数学Ⅰ11・情13・自由選択(月)1）。同じ正式名のブロックを区別できる
+          sjMeta[sjId] = { name: ((hdr[3] || '').trim() || (name || subj).trim()), real, span: bspan,
+            isHR: subj.includes('総合的な探究') || /LHR|ロングホーム|ホームルーム/.test(hw) };
+        }
         // 学年一斉の「総合的な探究の時間」「LHR/ホームルーム」のみ対象。
         // 選択講座はJ-CLASSに既にあり(担任≠受講クラスのため展開不可)、
         // 校務分掌(進路G等)は生徒授業でないため除外する。
@@ -1930,6 +1963,37 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         }
         _parseIdeaNativeIde._electiveRelabeled = relabeled;
       }
+
+      // ── 同時展開ブロック（選択講座・校務分掌・自由選択）を、J-CLASS/J-Teach/J-Room の
+      //    ブロック参照からそのまま1コマずつ作る。科目名はブロック名（例: 文/C312）、
+      //    開講科目一覧は realSubj に入れる。総合的な探究・LHR は上の担任別展開を使う。
+      let sjBuilt = 0;
+      for (const [sidStr, inst] of Object.entries(sjInstances)) {
+        const meta = sjMeta[parseInt(sidStr, 10)];
+        if (!meta || meta.isHR) continue;
+        let list = Object.values(inst).sort((a, b) => DAY_KEYS.indexOf(a.day) - DAY_KEYS.indexOf(b.day) || a.period - b.period);
+        if (meta.span >= 2) {
+          const kept = []; let prev = null, runStart = null;
+          for (const r of list) {
+            if (prev && prev.day === r.day && r.period === prev.period + 1 && (r.period - runStart) % meta.span !== 0) { prev = r; continue; }
+            kept.push(r); runStart = r.period; prev = r;
+          }
+          list = kept;
+        }
+        for (const r of list) {
+          if (!r.classes.size && !r.teachers.size) continue;
+          const id = String(itemIdCounter++);
+          items[id] = {
+            id, subj: meta.name, subjKey: meta.name,
+            cls: Array.from(r.classes), teas: Array.from(r.teachers), rooms: Array.from(r.rooms),
+            span: meta.span, simul: true, realSubj: meta.real.join(' / '),
+          };
+          placements[id] = { day: r.day, period: r.period, locked: false };
+          placedCount++; sjBuilt++;
+          if (!subjectCfg[meta.name]) subjectCfg[meta.name] = { abbr: meta.name, dept: '', fixedForbid: {}, noSameDay: false, noConsec: false, maxPerDay: null };
+        }
+      }
+      _parseIdeaNativeIde._sjBuilt = sjBuilt;
     }
 
     // ── rawRows を最終itemから再構築し、item ID を reflect と一致させる ──
