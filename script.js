@@ -667,6 +667,77 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   };
 
   /* =======================
+     データ保護（壊れたデータを読み込んでも動き続け、保存済みデータを失わないための仕組み）
+     - sanitizeState(): 状態を丸ごと差し替えた直後に必ず通す「形の点検と修理」
+     - 保存は1世代前の控え(__bak)を残してから行い、壊れていたら控えから復旧する
+  ======================= */
+  const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(state.settings));
+  const DEFAULT_UI = JSON.parse(JSON.stringify({ ...state.ui, gridMultiSel: null }));
+  const SCHEMA_VERSION = 2;
+  const _isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const _toStrArr = (x) => (Array.isArray(x) ? x : (x == null || x === '' ? [] : [x]))
+    .map(v => (v == null ? '' : String(v)).trim()).filter(Boolean);
+  const _VALID_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function sanitizeState(reason = '') {
+    const fix = { items: 0, placements: 0, rows: 0, settings: 0, other: 0 };
+    // items
+    if (!_isObj(state.items)) { state.items = {}; fix.items++; }
+    for (const id of Object.keys(state.items)) {
+      const it = state.items[id];
+      if (!_isObj(it)) { delete state.items[id]; fix.items++; continue; }
+      if (it.id !== id) { it.id = id; fix.items++; }
+      if (typeof it.subj !== 'string') { it.subj = it.subj == null ? '' : String(it.subj); fix.items++; }
+      if (typeof it.subjKey !== 'string' || !it.subjKey) { it.subjKey = it.subj; fix.items++; }
+      for (const k of ['cls', 'teas', 'rooms']) {
+        if (!Array.isArray(it[k]) || it[k].some(v => typeof v !== 'string' || !v.trim())) { it[k] = _toStrArr(it[k]); fix.items++; }
+      }
+      const sp = parseInt(it.span, 10);
+      const spOk = Number.isFinite(sp) && sp >= 1 && sp <= 4 ? sp : 1;
+      if (it.span !== spOk) { it.span = spOk; fix.items++; }
+    }
+    // placements: 実在するコマだけ・曜日/時限の形が正しいものだけ残す
+    if (!_isObj(state.placements)) { state.placements = {}; fix.placements++; }
+    for (const id of Object.keys(state.placements)) {
+      const p = state.placements[id];
+      if (!state.items[id]) { delete state.placements[id]; fix.placements++; continue; }
+      if (p == null) continue;
+      const per = parseInt(p.period, 10);
+      if (!_isObj(p) || !_VALID_DAYS.includes(p.day) || !Number.isFinite(per) || per < 1 || per > 12) {
+        state.placements[id] = null; fix.placements++; continue;
+      }
+      if (p.period !== per) { p.period = per; fix.placements++; }
+      if (typeof p.locked !== 'boolean') { p.locked = !!p.locked; }
+    }
+    // rawRows
+    if (!Array.isArray(state.rawRows)) { state.rawRows = []; fix.rows++; }
+    state.rawRows = state.rawRows.filter(r => { const ok = _isObj(r); if (!ok) fix.rows++; return ok; });
+    // 各種設定
+    if (!_isObj(state.subjectCfg)) { state.subjectCfg = {}; fix.other++; }
+    if (!_isObj(state.teacherCfg)) { state.teacherCfg = {}; fix.other++; }
+    for (const k of Object.keys(state.subjectCfg)) if (!_isObj(state.subjectCfg[k])) { delete state.subjectCfg[k]; fix.other++; }
+    for (const k of Object.keys(state.teacherCfg)) if (!_isObj(state.teacherCfg[k])) { delete state.teacherCfg[k]; fix.other++; }
+    if (!_isObj(state.settings)) { state.settings = {}; fix.settings++; }
+    for (const k in DEFAULT_SETTINGS) {
+      if (state.settings[k] === undefined) { state.settings[k] = JSON.parse(JSON.stringify(DEFAULT_SETTINGS[k])); fix.settings++; }
+    }
+    if (!_isObj(state.settings.periodsByDay)) { state.settings.periodsByDay = { ...DEFAULT_SETTINGS.periodsByDay }; fix.settings++; }
+    for (const d of Object.keys(state.settings.periodsByDay)) {
+      const v = parseInt(state.settings.periodsByDay[d], 10);
+      const ok = Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : 0;
+      if (state.settings.periodsByDay[d] !== ok) { state.settings.periodsByDay[d] = ok; fix.settings++; }
+    }
+    if (!_isObj(state.settings.classPeriodOverride)) { state.settings.classPeriodOverride = {}; fix.settings++; }
+    if (!_isObj(state.ui)) { state.ui = {}; fix.other++; }
+    for (const k in DEFAULT_UI) if (state.ui[k] === undefined) state.ui[k] = JSON.parse(JSON.stringify(DEFAULT_UI[k]));
+    if (state.ui.selectedId && !state.items[state.ui.selectedId]) state.ui.selectedId = null;
+    if (!Array.isArray(state.snapshots)) { state.snapshots = []; fix.other++; }
+    try { invalidateIndex(); } catch (e) { }
+    const total = fix.items + fix.placements + fix.rows + fix.settings + fix.other;
+    if (total) console.warn('[データ点検] ' + (reason || '') + ' で修理しました', fix);
+    return { total, fix };
+  }
+
+  /* =======================
      Project File Export / Import
      ファイル形式: .ide (JSON) — イデア時間割ソフト互換
      全データ（データ登録・科目/教員設定・配置・スナップショット）を一括保存
@@ -828,6 +899,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     state.placements = s.placements || {};
     state.rawRows = Array.isArray(s.rawRows) ? s.rawRows : [];
     if (s.periodsByDay) Object.assign(state.settings.periodsByDay, s.periodsByDay);
+    sanitizeState('案の切替');
     invalidateIndex(); markDirty('trRestore'); rerenderAll();
     flash(`🔄 「${e.label}」に切替えました`);
     return true;
@@ -850,6 +922,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (Array.isArray(plan.rawRows)) state.rawRows = plan.rawRows;
     const allDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
     allDays.forEach((d, i) => { state.settings.periodsByDay[d] = (i < plan.dayKeys.length) ? plan.periods : 0; });
+    sanitizeState('テスト返却');
     invalidateIndex();
     markDirty('testReturn');
     rerenderAll();
@@ -2214,6 +2287,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (parsed.roomCfg) state.roomCfg = parsed.roomCfg;
           // per-class 時限数（早帰り等で授業の無い余分なコマをグレー表示）
           state.settings.classPeriodOverride = parsed.classPeriodOverride || {};
+          sanitizeState('イデア読込');
           invalidateIndex();
           markDirty('ideaImport');
           rerenderAll();
@@ -2281,6 +2355,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         if (data.items && typeof data.items === 'object') state.items = normalizeItems(data.items);
         if (lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
         if (Array.isArray(data.snapshots)) state.snapshots = data.snapshots;
+        sanitizeState('プロジェクト読込');
 
         invalidateIndex();
         markDirty('projectImport');
@@ -2336,6 +2411,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     state.ui = { ...state.ui, ...(snap.ui || {}) };
     state.snapshots = snap.snapshots || [];
     state.ui.selectedId = null; state.ui.selectedFrom = '';
+    sanitizeState('元に戻す/セット切替');
     invalidateIndex();
   }
   function pushHistory(reason = '') {
@@ -2408,8 +2484,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (_sandboxMode) return;
     try {
       state.autosave.saving = true; updateAutosaveUI();
+      sanitizeState('保存前');
       const payload = {
         v: '27.1',
+        schema: SCHEMA_VERSION,
         savedAt: now(),
         rawRows: state.rawRows,
         items: state.items,
@@ -2421,7 +2499,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         snapshots: state.snapshots
       };
       const saveKey = _resolveSetKey(typeof _currentSetId !== 'undefined' ? _currentSetId : null);
-      localStorage.setItem(saveKey, JSON.stringify(payload));
+      const json = JSON.stringify(payload);
+      // 1世代前の控えを残す（今の保存内容が正しく読めるときだけ。壊れた内容で控えを上書きしない）
+      try {
+        const prev = localStorage.getItem(saveKey);
+        if (prev && prev !== json) { JSON.parse(prev); localStorage.setItem(saveKey + '__bak', prev); }
+      } catch (e) { /* 控えが作れなくても本保存は続ける（容量不足など） */ }
+      // 書いた内容を読み戻して確かめる
+      localStorage.setItem(saveKey, json);
+      if (localStorage.getItem(saveKey) !== json) throw new Error('保存内容の確認に失敗しました');
       state.autosave.dirty = false;
       state.autosave.lastSaved = payload.savedAt;
       state.autosave.error = '';
@@ -10032,6 +10118,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (state.placements[id] && state.placements[id].locked == null) state.placements[id].locked = false;
     }
     state.ui.selectedId = null;
+    sanitizeState('スナップショット復元');
     markDirty('snapshot');
     rerenderAll();
     broadcastState();
@@ -17638,11 +17725,27 @@ function buildIndex(){
       candidates.push(LS_KEY); // last fallback (empty)
     }
 
+    // 本保存が壊れていたら1世代前の控えも候補にする
+    if (candidates[0] === LS_KEY && localStorage.getItem(LS_KEY + '__bak')) candidates.splice(1, 0, LS_KEY + '__bak');
     for (const key of candidates) {
       try {
         const raw = localStorage.getItem(key);
         if (!raw) continue;
-        const obj = JSON.parse(raw);
+        let obj;
+        try { obj = JSON.parse(raw); }
+        catch (pe) {
+          // 壊れた保存データは消さずに別名で退避（あとで復旧できるように）。空の状態で上書きしない
+          try {
+            // 同じ壊れデータは1つだけ残す（読み込むたびに増えて容量を圧迫しないように）
+            const dk = Object.keys(localStorage).filter(k => k.startsWith(key + '__damaged_'));
+            if (!dk.some(k => localStorage.getItem(k) === raw)) {
+              dk.sort().slice(0, Math.max(0, dk.length - 2)).forEach(k => localStorage.removeItem(k)); // 古いものは最大3件まで
+              localStorage.setItem(key + '__damaged_' + Date.now(), raw);
+            }
+          } catch (e) { }
+          loadState._recoveredFrom = 'damaged';
+          continue;
+        }
         // accept if it looks like our schema
         if (obj && (obj.rawRows || obj.items || obj.placements)) {
           state.rawRows = obj.rawRows || state.rawRows || [];
@@ -17655,6 +17758,8 @@ function buildIndex(){
           state.snapshots = obj.snapshots || state.snapshots || [];
           state.autosave.dirty = false;
           state.autosave.lastSaved = obj.savedAt || 0;
+          sanitizeState('読込');
+          if (/__bak$/.test(key)) loadState._recoveredFrom = 'backup';
           return true;
         }
       } catch (e) { /* ignore */ }
@@ -17671,6 +17776,18 @@ function buildIndex(){
     };
 
     loadState();
+    sanitizeState('起動');
+    if (loadState._recoveredFrom === 'backup') setTimeout(() => flash('⚠ 保存データが壊れていたため、1つ前の保存から復旧しました', 6000), 600);
+    else if (loadState._recoveredFrom === 'damaged') setTimeout(() => flash('⚠ 保存データが読めませんでした。壊れたデータは消さずに別名で残しています', 6000), 600);
+    // ページを閉じる直前に未保存の変更を保存
+    window.addEventListener('beforeunload', () => { try { if (state.autosave.dirty) saveNow(); } catch (e) { } });
+    // 別のタブで同じ時間割が保存されたら知らせる（気づかず上書きし合うのを防ぐ）
+    window.addEventListener('storage', (ev) => {
+      try {
+        const myKey = _resolveSetKey(typeof _currentSetId !== 'undefined' ? _currentSetId : null);
+        if (ev.key === myKey && ev.newValue) flash('⚠ 別のタブでこの時間割が保存されました。同時に編集すると片方の変更が消えます', 6000);
+      } catch (e) { }
+    });
     if (!state.rawRows.length) addRow();
     rebuildMastersFromRaw();
     if (!Object.keys(state.items).length) reflectRawToItems(); // build initial
