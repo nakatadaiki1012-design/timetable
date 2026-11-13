@@ -667,6 +667,77 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   };
 
   /* =======================
+     データ保護（壊れたデータを読み込んでも動き続け、保存済みデータを失わないための仕組み）
+     - sanitizeState(): 状態を丸ごと差し替えた直後に必ず通す「形の点検と修理」
+     - 保存は1世代前の控え(__bak)を残してから行い、壊れていたら控えから復旧する
+  ======================= */
+  const DEFAULT_SETTINGS = JSON.parse(JSON.stringify(state.settings));
+  const DEFAULT_UI = JSON.parse(JSON.stringify({ ...state.ui, gridMultiSel: null }));
+  const SCHEMA_VERSION = 2;
+  const _isObj = (x) => !!x && typeof x === 'object' && !Array.isArray(x);
+  const _toStrArr = (x) => (Array.isArray(x) ? x : (x == null || x === '' ? [] : [x]))
+    .map(v => (v == null ? '' : String(v)).trim()).filter(Boolean);
+  const _VALID_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  function sanitizeState(reason = '') {
+    const fix = { items: 0, placements: 0, rows: 0, settings: 0, other: 0 };
+    // items
+    if (!_isObj(state.items)) { state.items = {}; fix.items++; }
+    for (const id of Object.keys(state.items)) {
+      const it = state.items[id];
+      if (!_isObj(it)) { delete state.items[id]; fix.items++; continue; }
+      if (it.id !== id) { it.id = id; fix.items++; }
+      if (typeof it.subj !== 'string') { it.subj = it.subj == null ? '' : String(it.subj); fix.items++; }
+      if (typeof it.subjKey !== 'string' || !it.subjKey) { it.subjKey = it.subj; fix.items++; }
+      for (const k of ['cls', 'teas', 'rooms']) {
+        if (!Array.isArray(it[k]) || it[k].some(v => typeof v !== 'string' || !v.trim())) { it[k] = _toStrArr(it[k]); fix.items++; }
+      }
+      const sp = parseInt(it.span, 10);
+      const spOk = Number.isFinite(sp) && sp >= 1 && sp <= 4 ? sp : 1;
+      if (it.span !== spOk) { it.span = spOk; fix.items++; }
+    }
+    // placements: 実在するコマだけ・曜日/時限の形が正しいものだけ残す
+    if (!_isObj(state.placements)) { state.placements = {}; fix.placements++; }
+    for (const id of Object.keys(state.placements)) {
+      const p = state.placements[id];
+      if (!state.items[id]) { delete state.placements[id]; fix.placements++; continue; }
+      if (p == null) continue;
+      const per = parseInt(p.period, 10);
+      if (!_isObj(p) || !_VALID_DAYS.includes(p.day) || !Number.isFinite(per) || per < 1 || per > 12) {
+        state.placements[id] = null; fix.placements++; continue;
+      }
+      if (p.period !== per) { p.period = per; fix.placements++; }
+      if (typeof p.locked !== 'boolean') { p.locked = !!p.locked; }
+    }
+    // rawRows
+    if (!Array.isArray(state.rawRows)) { state.rawRows = []; fix.rows++; }
+    state.rawRows = state.rawRows.filter(r => { const ok = _isObj(r); if (!ok) fix.rows++; return ok; });
+    // 各種設定
+    if (!_isObj(state.subjectCfg)) { state.subjectCfg = {}; fix.other++; }
+    if (!_isObj(state.teacherCfg)) { state.teacherCfg = {}; fix.other++; }
+    for (const k of Object.keys(state.subjectCfg)) if (!_isObj(state.subjectCfg[k])) { delete state.subjectCfg[k]; fix.other++; }
+    for (const k of Object.keys(state.teacherCfg)) if (!_isObj(state.teacherCfg[k])) { delete state.teacherCfg[k]; fix.other++; }
+    if (!_isObj(state.settings)) { state.settings = {}; fix.settings++; }
+    for (const k in DEFAULT_SETTINGS) {
+      if (state.settings[k] === undefined) { state.settings[k] = JSON.parse(JSON.stringify(DEFAULT_SETTINGS[k])); fix.settings++; }
+    }
+    if (!_isObj(state.settings.periodsByDay)) { state.settings.periodsByDay = { ...DEFAULT_SETTINGS.periodsByDay }; fix.settings++; }
+    for (const d of Object.keys(state.settings.periodsByDay)) {
+      const v = parseInt(state.settings.periodsByDay[d], 10);
+      const ok = Number.isFinite(v) ? Math.max(0, Math.min(12, v)) : 0;
+      if (state.settings.periodsByDay[d] !== ok) { state.settings.periodsByDay[d] = ok; fix.settings++; }
+    }
+    if (!_isObj(state.settings.classPeriodOverride)) { state.settings.classPeriodOverride = {}; fix.settings++; }
+    if (!_isObj(state.ui)) { state.ui = {}; fix.other++; }
+    for (const k in DEFAULT_UI) if (state.ui[k] === undefined) state.ui[k] = JSON.parse(JSON.stringify(DEFAULT_UI[k]));
+    if (state.ui.selectedId && !state.items[state.ui.selectedId]) state.ui.selectedId = null;
+    if (!Array.isArray(state.snapshots)) { state.snapshots = []; fix.other++; }
+    try { invalidateIndex(); } catch (e) { }
+    const total = fix.items + fix.placements + fix.rows + fix.settings + fix.other;
+    if (total) console.warn('[データ点検] ' + (reason || '') + ' で修理しました', fix);
+    return { total, fix };
+  }
+
+  /* =======================
      Project File Export / Import
      ファイル形式: .ide (JSON) — イデア時間割ソフト互換
      全データ（データ登録・科目/教員設定・配置・スナップショット）を一括保存
@@ -828,6 +899,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     state.placements = s.placements || {};
     state.rawRows = Array.isArray(s.rawRows) ? s.rawRows : [];
     if (s.periodsByDay) Object.assign(state.settings.periodsByDay, s.periodsByDay);
+    sanitizeState('案の切替');
     invalidateIndex(); markDirty('trRestore'); rerenderAll();
     flash(`🔄 「${e.label}」に切替えました`);
     return true;
@@ -850,6 +922,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (Array.isArray(plan.rawRows)) state.rawRows = plan.rawRows;
     const allDays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
     allDays.forEach((d, i) => { state.settings.periodsByDay[d] = (i < plan.dayKeys.length) ? plan.periods : 0; });
+    sanitizeState('テスト返却');
     invalidateIndex();
     markDirty('testReturn');
     rerenderAll();
@@ -2214,6 +2287,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (parsed.roomCfg) state.roomCfg = parsed.roomCfg;
           // per-class 時限数（早帰り等で授業の無い余分なコマをグレー表示）
           state.settings.classPeriodOverride = parsed.classPeriodOverride || {};
+          sanitizeState('イデア読込');
           invalidateIndex();
           markDirty('ideaImport');
           rerenderAll();
@@ -2281,6 +2355,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         if (data.items && typeof data.items === 'object') state.items = normalizeItems(data.items);
         if (lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
         if (Array.isArray(data.snapshots)) state.snapshots = data.snapshots;
+        sanitizeState('プロジェクト読込');
 
         invalidateIndex();
         markDirty('projectImport');
@@ -2336,6 +2411,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     state.ui = { ...state.ui, ...(snap.ui || {}) };
     state.snapshots = snap.snapshots || [];
     state.ui.selectedId = null; state.ui.selectedFrom = '';
+    sanitizeState('元に戻す/セット切替');
     invalidateIndex();
   }
   function pushHistory(reason = '') {
@@ -2408,8 +2484,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (_sandboxMode) return;
     try {
       state.autosave.saving = true; updateAutosaveUI();
+      sanitizeState('保存前');
       const payload = {
         v: '27.1',
+        schema: SCHEMA_VERSION,
         savedAt: now(),
         rawRows: state.rawRows,
         items: state.items,
@@ -2421,7 +2499,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         snapshots: state.snapshots
       };
       const saveKey = _resolveSetKey(typeof _currentSetId !== 'undefined' ? _currentSetId : null);
-      localStorage.setItem(saveKey, JSON.stringify(payload));
+      const json = JSON.stringify(payload);
+      // 1世代前の控えを残す（今の保存内容が正しく読めるときだけ。壊れた内容で控えを上書きしない）
+      try {
+        const prev = localStorage.getItem(saveKey);
+        if (prev && prev !== json) { JSON.parse(prev); localStorage.setItem(saveKey + '__bak', prev); }
+      } catch (e) { /* 控えが作れなくても本保存は続ける（容量不足など） */ }
+      // 書いた内容を読み戻して確かめる
+      localStorage.setItem(saveKey, json);
+      if (localStorage.getItem(saveKey) !== json) throw new Error('保存内容の確認に失敗しました');
       state.autosave.dirty = false;
       state.autosave.lastSaved = payload.savedAt;
       state.autosave.error = '';
@@ -6130,7 +6216,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     svg.id = 'main-grid-sug-svg';
     svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-    svg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:19999;overflow:visible';
+    // 提案ウィンドウ(z-index 9999)より下に描く。以前は19999で、矢印が提案ウィンドウの上に透けて見えていた
+    svg.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;pointer-events:none;z-index:9990;overflow:visible';
 
     let defs = `<defs>`;
     let body = '';
@@ -8387,6 +8474,31 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         }
         pen += holes * 3;
       }
+      // 連続授業: この配置で先生が3連続/4連続以上になるなら減点（4連続は特に重く）
+      {
+        let L = 0, add = 0;
+        for (let p = 1; p <= maxP + 1; p++) {
+          if (lunchAfter && p === lunchAfter + 1) { add += teacherRunPenalty(L); L = 0; }
+          if (set.has(p)) L++; else { add += teacherRunPenalty(L); L = 0; }
+        }
+        pen += add * 3 + (add >= 10 ? add * 9 : 0);
+      }
+    }
+    // 時間帯の偏り: このクラスの同じ授業が既に1時間目/午後に多いのに、さらに同じ時間帯へ置く配置を減点
+    for (const c of (it.cls || [])) {
+      let n = 1, first = (period === 1 ? 1 : 0), pm = (lunchAfter && period > lunchAfter ? 1 : 0);
+      const seenS = new Set([id]);
+      const cIdx = idx.cls?.[c] || {};
+      for (const d in cIdx) for (const pk in cIdx[d]) for (const oid of (cIdx[d][pk] || [])) {
+        if (seenS.has(oid)) continue; seenS.add(oid);
+        const o = state.items[oid]; if (!o || o.subjKey !== it.subjKey) continue;
+        const op = state.placements[oid]; if (!op || !op.day) continue;
+        n++; if (op.period === 1) first++; if (lunchAfter && op.period > lunchAfter) pm++;
+      }
+      if (n >= 2) {
+        if (period === 1) pen += Math.max(0, first - Math.max(1, Math.floor(n / 3))) * 12;
+        if (lunchAfter && period > lunchAfter) pen += Math.max(0, pm - Math.max(1, Math.ceil(n / 2))) * 8;
+      }
     }
     return pen;
   }
@@ -8409,6 +8521,32 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
       const maxD = teacherDailyMax(t);
       if (maxD != null && ps.length > maxD) cost += (ps.length - maxD) * 6;
+      // 連続授業（3連続=3、4連続=30、5連続=60）
+      {
+        const set = new Set(ps); let L = 0, add = 0; const maxP = maxPeriod(d);
+        for (let p = 1; p <= maxP + 1; p++) {
+          if (lunchAfter && p === lunchAfter + 1) { add += teacherRunPenalty(L); L = 0; }
+          if (set.has(p)) L++; else { add += teacherRunPenalty(L); L = 0; }
+        }
+        cost += add * 3 + (add >= 10 ? add * 9 : 0); // 4連続以上は提案ではほぼ選ばない重さに
+      }
+    }
+    // 同じ授業が1時間目ばかり・午後ばかりになっていないか（クラスごと・週全体）
+    for (const c of clsList) {
+      const agg = {}; const seenA = new Set();
+      const cIdx = idx.cls?.[c] || {};
+      for (const d in cIdx) for (const pk in cIdx[d]) for (const oid of (cIdx[d][pk] || [])) {
+        if (seenA.has(oid)) continue; seenA.add(oid);
+        const o = state.items[oid]; if (!o) continue;
+        const op = state.placements[oid]; if (!op || !op.day) continue;
+        const a = agg[o.subjKey] || (agg[o.subjKey] = { n: 0, first: 0, pm: 0 });
+        a.n++; if (op.period === 1) a.first++; if (lunchAfter && op.period > lunchAfter) a.pm++;
+      }
+      for (const k in agg) {
+        const a = agg[k]; if (a.n < 2) continue;
+        cost += Math.max(0, a.first - Math.max(1, Math.floor(a.n / 3))) * 12;
+        cost += Math.max(0, a.pm - Math.max(1, Math.ceil(a.n / 2))) * 8;
+      }
     }
     for (const c of clsList) for (const d of days) {
       const cday = idx.cls?.[c]?.[d] || {};
@@ -8887,6 +9025,146 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     rerenderAll();
     broadcastState();
   }
+  /* =======================
+     仕上げ: 先生の連続授業（4連続→3連続）と、同じ授業の時間帯の偏り（1時間目ばかり/午後ばかり）を減らす
+     - 問題のあるコマごとに「同じクラスの別のコマとの入替」「空き枠への移動」「同じクラス内の3コマ回転」を試し、
+       衝突を作らず時間割全体の悪さ(moveDeltaCost)が下がる手だけを採用する
+     - ロック済みのコマは動かさない
+  ======================= */
+  function softProblemIds() {
+    const lunchAfter = Number(state.settings.lunchAfter || 0);
+    const idx = buildIndex();
+    const prio = {};
+    // 総合的な探究・LHRは学年一斉で動かせないので対象外（時間を無駄にしない）
+    const fixedLike = (id) => /総合的な探究|ＬＨＲ|LHR/.test(state.items[id]?.subj || '');
+    const bump = (id, v) => { if (!state.placements[id]?.locked && !fixedLike(id)) prio[id] = Math.max(prio[id] || 0, v); };
+    const stat = { run4: 0, run3: 0, first: 0, pm: 0 };
+    // 先生の連続授業
+    for (const t in idx.tea) for (const d of DAYS) {
+      const dm = idx.tea[t]?.[d]; if (!dm) continue;
+      const maxP = maxPeriod(d);
+      let run = [];
+      const flush = () => {
+        if (run.length >= 3) {
+          if (run.length >= 4) stat.run4++; else stat.run3++;
+          for (const p of run) for (const id of (dm[p] || [])) bump(id, run.length >= 4 ? 30 : 10);
+        }
+        run = [];
+      };
+      for (let p = 1; p <= maxP + 1; p++) {
+        if (lunchAfter && p === lunchAfter + 1) flush();
+        if ((dm[p] || []).length) run.push(p); else flush();
+      }
+    }
+    // 同じ授業の時間帯の偏り
+    for (const c in idx.cls) {
+      const agg = {}; const seen = new Set();
+      for (const d in idx.cls[c]) for (const pk in idx.cls[c][d]) for (const id of (idx.cls[c][d][pk] || [])) {
+        if (seen.has(id)) continue; seen.add(id);
+        const it = state.items[id], pl = state.placements[id]; if (!it || !pl) continue;
+        const a = agg[it.subjKey] || (agg[it.subjKey] = { n: 0, first: [], pm: [] });
+        a.n++; if (pl.period === 1) a.first.push(id); if (lunchAfter && pl.period > lunchAfter) a.pm.push(id);
+      }
+      for (const k in agg) {
+        const a = agg[k]; if (a.n < 2) continue;
+        if (a.first.length > Math.max(1, Math.floor(a.n / 3))) { stat.first++; a.first.forEach(id => bump(id, 20)); }
+        if (a.pm.length > Math.max(1, Math.ceil(a.n / 2))) { stat.pm++; a.pm.forEach(id => bump(id, 15)); }
+      }
+    }
+    const ids = Object.keys(prio).sort((x, y) => prio[y] - prio[x]);
+    return { ids, stat };
+  }
+
+  // 1コマについて、衝突を作らずに時間割を良くする最良の手を探す（無ければ null）
+  function bestSoftFixFor(id, deadline) {
+    const it = state.items[id]; const plc = state.placements[id];
+    if (!it || !plc || plc.locked) return null;
+    const span = it.span || 1;
+    const clsKey = (it.cls || []).slice().sort().join(',');
+    let best = null;
+    const consider = (moves) => {
+      if (moves.some(m => state.placements[m.id]?.locked)) return;
+      const sim = simulateMoves(moves); if (!sim.ok) return;
+      let d = 0; try { d = moveDeltaCost(moves); } catch (e) { return; }
+      if (d < -0.5 && (!best || d < best.delta)) best = { moves, delta: d };
+    };
+    // 同じクラス（同じクラス構成・同じ長さ）の他のコマ
+    const peers = [];
+    for (const oid in state.items) {
+      if (oid === id) continue;
+      const o = state.items[oid], op = state.placements[oid];
+      if (!o || !op || !op.day || op.locked) continue;
+      if ((o.span || 1) !== span) continue;
+      if ((o.cls || []).slice().sort().join(',') !== clsKey) continue;
+      peers.push(oid);
+    }
+    // 1) 入替
+    for (const oid of peers) {
+      if (Date.now() > deadline) break;
+      const op = state.placements[oid];
+      consider([{ id, day: op.day, period: op.period, span }, { id: oid, day: plc.day, period: plc.period, span }]);
+    }
+    // 2) 空き枠への移動（クラスの空き時限）
+    for (const d of DAYS) {
+      const maxP = maxPeriod(d);
+      for (let p = 1; p + span - 1 <= maxP; p++) {
+        if (Date.now() > deadline) break;
+        if (d === plc.day && p === plc.period) continue;
+        const v = validatePlacement(id, d, p, 'safe', null);
+        if (v.blocks.length) continue;
+        consider([{ id, day: d, period: p, span }]);
+      }
+    }
+    // 3) 同じクラス内の3コマ回転（入替で直らない時だけ）
+    if (!best) {
+      const lim = Math.min(peers.length, 18);
+      for (let i = 0; i < lim && Date.now() <= deadline; i++) for (let j = 0; j < lim && Date.now() <= deadline; j++) {
+        if (i === j) continue;
+        const a = peers[i], b = peers[j];
+        const pa = state.placements[a], pb = state.placements[b];
+        consider([
+          { id, day: pa.day, period: pa.period, span },
+          { id: a, day: pb.day, period: pb.period, span },
+          { id: b, day: plc.day, period: plc.period, span },
+        ]);
+      }
+    }
+    return best;
+  }
+
+  // 時間の許す限り直す（非同期・画面を固めない）。戻り値は前後の件数
+  async function polishTeacherRunsAndSpread(opts = {}) {
+    const budgetMs = opts.budgetMs || 15000;
+    const statusEl = document.getElementById('ai-status');
+    const start = Date.now(); const end = start + budgetMs;
+    const before = softProblemIds().stat;
+    let applied = 0, histPushed = false;
+    for (let pass = 0; pass < 4 && Date.now() < end; pass++) {
+      const { ids } = softProblemIds();
+      if (!ids.length) break;
+      let changed = 0;
+      for (const id of ids) {
+        if (Date.now() >= end) break;
+        const fix = bestSoftFixFor(id, Math.min(end, Date.now() + 600));
+        if (fix) {
+          if (!histPushed) { pushHistory('polish'); histPushed = true; }
+          for (const m of fix.moves) state.placements[m.id] = null;
+          for (const m of fix.moves) state.placements[m.id] = { day: m.day, period: m.period, locked: false };
+          invalidateIndex(); applied++; changed++;
+        }
+        if (statusEl) statusEl.textContent = `🧹 連続・偏りを改善中… ${applied}手`;
+        await new Promise(r => setTimeout(r, 0)); // 画面を固めない
+      }
+      if (!changed) break;
+    }
+    const after = softProblemIds().stat;
+    if (applied) { markDirty('place'); rerenderAll(); broadcastState(); }
+    const msg = `🧹 改善 ${applied}手: 4連続 ${before.run4}→${after.run4}・3連続 ${before.run3}→${after.run3}・1時間目の偏り ${before.first}→${after.first}・午後の偏り ${before.pm}→${after.pm}`;
+    if (statusEl) statusEl.textContent = msg;
+    if (!opts.silent) flash(msg);
+    return { before, after, applied };
+  }
+
   function computeEmptySuggestions(id) {
     const it = state.items[id];
     if (!it) return [];
@@ -9840,6 +10118,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (state.placements[id] && state.placements[id].locked == null) state.placements[id].locked = false;
     }
     state.ui.selectedId = null;
+    sanitizeState('スナップショット復元');
     markDirty('snapshot');
     rerenderAll();
     broadcastState();
@@ -10656,6 +10935,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   function aiBalanceLoadOn() { return !!state.settings.aiBalanceLoad; }
   const TEACHER_GAP_W = 8;
   const TEACHER_BAL_W = 2; // 1日コマ数の二乗和ペナルティ重み（負担平準化）
+  // 教員の連続授業ペナルティ（常に有効）。3連続=30、4連続=300、5連続=600 相当
+  const TEACHER_RUN_W = 30;
+  function teacherRunPenalty(L) { return L >= 4 ? (L - 3) * 10 : (L === 3 ? 1 : 0); }
+  // 同じ授業が1時間目ばかり・午後ばかりに偏るのを避ける重み（常に有効）
+  const SUBJ_SPREAD_W = 40;
   // 1教員分の教員系ソフト生値:
   //   gap     = 各曜日で最初〜最後の授業の間の空き時限数（中抜け）の合計
   //   balance = 各曜日の担当コマ数の二乗和（小さいほど曜日間で平準化される）
@@ -10668,16 +10952,27 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const s = byDay[plc.day] || (byDay[plc.day] = new Set());
       for (let dp = 0; dp < span; dp++) s.add(plc.period + dp);
     }
-    let gap = 0, balance = 0;
+    let gap = 0, balance = 0, run = 0;
+    const lunchAfter = Number(state.settings.lunchAfter || 0);
     for (const day in byDay) {
       const ps = byDay[day];
+      // 連続授業: 昼休みで区切った連続コマ数 L について、3連続=1点、4連続以上=(L-3)×10点
+      // （4連続はできるだけ無くし、3連続もなるべく減らす）
+      {
+        let L = 0;
+        const maxP = maxPeriod(day);
+        for (let p = 1; p <= maxP + 1; p++) {
+          if (lunchAfter && p === lunchAfter + 1) { run += teacherRunPenalty(L); L = 0; }
+          if (ps.has(p)) L++; else { run += teacherRunPenalty(L); L = 0; }
+        }
+      }
       balance += ps.size * ps.size;
       if (ps.size < 2) continue;
       let mn = Infinity, mx = -Infinity;
       for (const p of ps) { if (p < mn) mn = p; if (p > mx) mx = p; }
       gap += (mx - mn + 1) - ps.size;
     }
-    return { gap, balance };
+    return { gap, balance, run };
   }
 
   // 1クラス分のソフト指標（bias/consec/noSameDay）の生値を算出。
@@ -10688,6 +10983,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const deptAgg = {};   // dept -> {sum, cnt}
     const cell = {};      // day -> period -> 先頭item id
     const noSame = {};    // `c|subjKey|day` -> count
+    const spread = {};    // subjKey -> {n, first, pm}
+    const lunchAfterS = Number(state.settings.lunchAfter || 0);
     for (const id of ids) {
       const plc = placements[id]; if (!plc || !plc.day) continue;
       const it = state.items[id]; if (!it) continue;
@@ -10701,6 +10998,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
       const sc = state.subjectCfg[it.subjKey] || {};
       if (sc.noSameDay) { const key = `${c}|${it.subjKey}|${plc.day}`; noSame[key] = (noSame[key] || 0) + 1; }
+      const sp = spread[it.subjKey] || (spread[it.subjKey] = { n: 0, first: 0, pm: 0 });
+      sp.n++; if (plc.period === 1) sp.first++; if (lunchAfterS && plc.period > lunchAfterS) sp.pm++;
+    }
+    // 同じ授業の時間帯の偏り: 1時間目が週の1/3（最低1回）を超える分、午後が半分（最低1回）を超える分を減点
+    let spreadPen = 0;
+    for (const k in spread) {
+      const a = spread[k]; if (a.n < 2) continue;
+      spreadPen += Math.max(0, a.first - Math.max(1, Math.floor(a.n / 3)));
+      spreadPen += Math.max(0, a.pm - Math.max(1, Math.ceil(a.n / 2)));
     }
     let bias = 0;
     for (const d in deptAgg) { const a = deptAgg[d]; if (a.cnt > 0) bias += (a.sum * a.sum) / a.cnt; }
@@ -10718,7 +11024,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
     let noSameDay = 0;
     for (const k in noSame) { const n = noSame[k]; if (n >= 2) noSameDay += 5000 + (n - 2) * 8000; }
-    return { bias, consec, noSameDay };
+    // 時間帯の偏りは常に有効なソフト制約として noSameDay 枠に合算（差分評価の経路をそのまま使える）
+    noSameDay += spreadPen * SUBJ_SPREAD_W;
+    return { bias, consec, noSameDay, spread: spreadPen };
   }
 
   function softMetricsFromPlacements(placements, optBalance = true, optNoConsec = true) {
@@ -10728,15 +11036,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const r = classSoftContribution(placements, c, itemsByClass[c]);
       bias += r.bias; consec += r.consec; noSameDayPenalty += r.noSameDay;
     }
-    let teaGap = 0, teaBal = 0;
+    let teaGap = 0, teaBal = 0, teaRun = 0;
     const gapOn = aiMinGapOn(), balOn = aiBalanceLoadOn();
-    if (gapOn || balOn) {
+    {
       const itemsByTea = getItemsByTeacher();
-      for (const t in itemsByTea) { const r = teacherSoftContribution(placements, t, itemsByTea[t]); teaGap += r.gap; teaBal += r.balance; }
+      for (const t in itemsByTea) { const r = teacherSoftContribution(placements, t, itemsByTea[t]); teaGap += r.gap; teaBal += r.balance; teaRun += r.run; }
     }
     const score = (optBalance ? bias : 0) + (optNoConsec ? consec * 4 : 0) + noSameDayPenalty
-      + (gapOn ? teaGap * TEACHER_GAP_W : 0) + (balOn ? teaBal * TEACHER_BAL_W : 0);
-    return { bias, consec, noSameDayPenalty, teaGap, teaBal, score };
+      + (gapOn ? teaGap * TEACHER_GAP_W : 0) + (balOn ? teaBal * TEACHER_BAL_W : 0) + teaRun * TEACHER_RUN_W;
+    return { bias, consec, noSameDayPenalty, teaGap, teaBal, teaRun, score };
   }
 
   // 未配置ペナルティ重み。配置数維持モードではハード違反(×100000)より重くして、
@@ -12444,21 +12752,21 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const _itemsByTea = getItemsByTeacher();
     const _gapOn = aiMinGapOn();
     const _balOn = aiBalanceLoadOn();
-    const _teaOn = _gapOn || _balOn;
-    const _scBias = {}, _scConsec = {}, _scNoSame = {}, _scGap = {}, _scBal = {};
-    let _biasT = 0, _consecT = 0, _noSameT = 0, _gapT = 0, _balT = 0;
+    const _teaOn = true; // 教員の連続授業ペナルティは常に有効なので教員単位の集計も常に行う
+    const _scBias = {}, _scConsec = {}, _scNoSame = {}, _scGap = {}, _scBal = {}, _scRun = {};
+    let _biasT = 0, _consecT = 0, _noSameT = 0, _gapT = 0, _balT = 0, _runT = 0;
     function _initSoftCaches() {
-      _biasT = 0; _consecT = 0; _noSameT = 0; _gapT = 0; _balT = 0;
+      _biasT = 0; _consecT = 0; _noSameT = 0; _gapT = 0; _balT = 0; _runT = 0;
       for (const c in _itemsByClass) {
         const r = classSoftContribution(placements, c, _itemsByClass[c]);
         _scBias[c] = r.bias; _scConsec[c] = r.consec; _scNoSame[c] = r.noSameDay;
         _biasT += r.bias; _consecT += r.consec; _noSameT += r.noSameDay;
       }
-      if (_teaOn) for (const t in _itemsByTea) { const r = teacherSoftContribution(placements, t, _itemsByTea[t]); _scGap[t] = r.gap; _scBal[t] = r.balance; _gapT += r.gap; _balT += r.balance; }
+      if (_teaOn) for (const t in _itemsByTea) { const r = teacherSoftContribution(placements, t, _itemsByTea[t]); _scGap[t] = r.gap; _scBal[t] = r.balance; _scRun[t] = r.run; _gapT += r.gap; _balT += r.balance; _runT += r.run; }
     }
     function _flaggedSoft() {
       return (optBalance ? _biasT : 0) + (optNoConsec ? _consecT * 4 : 0) + _noSameT
-        + (_gapOn ? _gapT * TEACHER_GAP_W : 0) + (_balOn ? _balT * TEACHER_BAL_W : 0);
+        + (_gapOn ? _gapT * TEACHER_GAP_W : 0) + (_balOn ? _balT * TEACHER_BAL_W : 0) + _runT * TEACHER_RUN_W;
     }
     function _updateSoftForClasses(classes) {
       for (const c of classes) {
@@ -12474,6 +12782,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       for (const t of teas) {
         const r = teacherSoftContribution(placements, t, _itemsByTea[t] || []);
         _gapT += r.gap - (_scGap[t] || 0);
+        _runT += r.run - (_scRun[t] || 0); _scRun[t] = r.run;
         _balT += r.balance - (_scBal[t] || 0);
         _scGap[t] = r.gap; _scBal[t] = r.balance;
       }
@@ -12526,13 +12835,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         dN += r.noSameDay - (_scNoSame[c] || 0);
       }
       // 影響教員の空きコマ・平準化差分
-      let dG = 0, dBal = 0;
+      let dG = 0, dBal = 0, dRun = 0;
       if (_teaOn) {
         const affTea = new Set([..._teaOf(id), ...(swapId ? _teaOf(swapId) : [])]);
-        for (const t of affTea) { const r = teacherSoftContribution(placements, t, _itemsByTea[t] || []); dG += r.gap - (_scGap[t] || 0); dBal += r.balance - (_scBal[t] || 0); }
+        for (const t of affTea) { const r = teacherSoftContribution(placements, t, _itemsByTea[t] || []); dG += r.gap - (_scGap[t] || 0); dBal += r.balance - (_scBal[t] || 0); dRun += r.run - (_scRun[t] || 0); }
       }
       const newSoft = _flaggedSoft() + (optBalance ? dB : 0) + (optNoConsec ? dC * 4 : 0) + dN
-        + (_gapOn ? dG * TEACHER_GAP_W : 0) + (_balOn ? dBal * TEACHER_BAL_W : 0);
+        + (_gapOn ? dG * TEACHER_GAP_W : 0) + (_balOn ? dBal * TEACHER_BAL_W : 0) + dRun * TEACHER_RUN_W;
       const newTotal = newHard * 100000 + newSoft + _cache.remain * _remainW;
 
       // 元に戻す
@@ -16576,6 +16885,11 @@ function buildIndex(){
     };
     if ($('#ai-rand')) { $('#ai-rand').addEventListener('input', updRand); updRand(); }
     $('#btn-ai').onclick = () => aiPlaceAll();
+    $('#btn-polish')?.addEventListener('click', async (ev) => {
+      const b = ev.currentTarget; if (b.disabled) return;
+      b.disabled = true; const t = b.textContent; b.textContent = '🧹 改善中…';
+      try { await polishTeacherRunsAndSpread({ budgetMs: 20000 }); } finally { b.disabled = false; b.textContent = t; }
+    });
     $('#btn-analyze')?.addEventListener('click', () => showTimetableAnalysis());
     $('#btn-set-manager')?.addEventListener('click', () => openSetManager());
     $('#btn-project-save')?.addEventListener('click', () => exportProjectFile());
@@ -16927,6 +17241,8 @@ function buildIndex(){
             aiRunner.running = false;
             aiRunner.stop = false;
             if (btnRun) { btnRun.textContent = 'AI探索開始'; btnRun.classList.remove('danger'); btnRun.disabled = false; }
+            // 仕上げ: 先生の4連続/3連続・同じ授業の時間帯の偏りを、衝突を作らない入替で減らす
+            setTimeout(() => { try { polishTeacherRunsAndSpread({ budgetMs: 10000 }); } catch (e) { console.warn('[polish]', e); } }, 50);
             // プログレスバーをリセット
             const pb = document.getElementById('ai-progress-bar');
             if (pb) pb.style.width = '0%';
@@ -17409,11 +17725,27 @@ function buildIndex(){
       candidates.push(LS_KEY); // last fallback (empty)
     }
 
+    // 本保存が壊れていたら1世代前の控えも候補にする
+    if (candidates[0] === LS_KEY && localStorage.getItem(LS_KEY + '__bak')) candidates.splice(1, 0, LS_KEY + '__bak');
     for (const key of candidates) {
       try {
         const raw = localStorage.getItem(key);
         if (!raw) continue;
-        const obj = JSON.parse(raw);
+        let obj;
+        try { obj = JSON.parse(raw); }
+        catch (pe) {
+          // 壊れた保存データは消さずに別名で退避（あとで復旧できるように）。空の状態で上書きしない
+          try {
+            // 同じ壊れデータは1つだけ残す（読み込むたびに増えて容量を圧迫しないように）
+            const dk = Object.keys(localStorage).filter(k => k.startsWith(key + '__damaged_'));
+            if (!dk.some(k => localStorage.getItem(k) === raw)) {
+              dk.sort().slice(0, Math.max(0, dk.length - 2)).forEach(k => localStorage.removeItem(k)); // 古いものは最大3件まで
+              localStorage.setItem(key + '__damaged_' + Date.now(), raw);
+            }
+          } catch (e) { }
+          loadState._recoveredFrom = 'damaged';
+          continue;
+        }
         // accept if it looks like our schema
         if (obj && (obj.rawRows || obj.items || obj.placements)) {
           state.rawRows = obj.rawRows || state.rawRows || [];
@@ -17426,6 +17758,8 @@ function buildIndex(){
           state.snapshots = obj.snapshots || state.snapshots || [];
           state.autosave.dirty = false;
           state.autosave.lastSaved = obj.savedAt || 0;
+          sanitizeState('読込');
+          if (/__bak$/.test(key)) loadState._recoveredFrom = 'backup';
           return true;
         }
       } catch (e) { /* ignore */ }
@@ -17442,6 +17776,18 @@ function buildIndex(){
     };
 
     loadState();
+    sanitizeState('起動');
+    if (loadState._recoveredFrom === 'backup') setTimeout(() => flash('⚠ 保存データが壊れていたため、1つ前の保存から復旧しました', 6000), 600);
+    else if (loadState._recoveredFrom === 'damaged') setTimeout(() => flash('⚠ 保存データが読めませんでした。壊れたデータは消さずに別名で残しています', 6000), 600);
+    // ページを閉じる直前に未保存の変更を保存
+    window.addEventListener('beforeunload', () => { try { if (state.autosave.dirty) saveNow(); } catch (e) { } });
+    // 別のタブで同じ時間割が保存されたら知らせる（気づかず上書きし合うのを防ぐ）
+    window.addEventListener('storage', (ev) => {
+      try {
+        const myKey = _resolveSetKey(typeof _currentSetId !== 'undefined' ? _currentSetId : null);
+        if (ev.key === myKey && ev.newValue) flash('⚠ 別のタブでこの時間割が保存されました。同時に編集すると片方の変更が消えます', 6000);
+      } catch (e) { }
+    });
     if (!state.rawRows.length) addRow();
     rebuildMastersFromRaw();
     if (!Object.keys(state.items).length) reflectRawToItems(); // build initial
