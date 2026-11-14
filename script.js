@@ -5975,9 +5975,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
 
   // v49 B-3: 関連コマ (同教員・同クラス) のハイライト
-  // コマにカーソルを合わせた時の関連表示
-  //   紫=同じコマ（別の行に出ている同じ授業・合同・同時展開） 緑=同じクラスの同じ授業（週の散らばりが分かる）
-  //   橙=同じ先生の授業  青=同じクラスの授業  それ以外は薄く表示して関連だけが目立つようにする
+  // コマにカーソルを合わせた時の関連表示（それ以外は薄く表示して関連だけが目立つようにする）
+  //   紫=同じコマ（別の行に出ている同じ授業・合同・同時展開）
+  //   クラス表示では 橙=同じ先生の授業、教員表示では 青=同じクラスの授業 を濃く表示する
   const HOVER_CLASSES = ['hl-linked', 'hl-samesubj', 'hl-tea', 'hl-cls', 'related-highlight', 'linked-hover'];
   let _hlTimer = null, _hlActive = null;
   function highlightRelated(id, on) {
@@ -6003,20 +6003,21 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     _hlActive = id;
     const teaSet = new Set(it.teas || []), clsSet = new Set(it.cls || []);
     const linked = linkedGroupIds(id);
+    // 表示ごとに濃く見せるもの: クラス表示=同じコマ＋同じ先生 / 教員表示=同じコマ＋同じクラス / 教室表示=両方
+    const mode = state.ui.viewMode;
+    const showTea = mode !== 'teacher', showCls = mode !== 'class';
     const kindOf = (eid) => {
       if (eid === id || linked.has(eid)) return 'hl-linked';
       const o = state.items[eid]; if (!o) return null;
-      const shareCls = (o.cls || []).some(c => clsSet.has(c));
-      if (shareCls && o.subjKey === it.subjKey) return 'hl-samesubj';
-      if ((o.teas || []).some(t => teaSet.has(t))) return 'hl-tea';
-      if (shareCls) return 'hl-cls';
+      if (showTea && (o.teas || []).some(t => teaSet.has(t))) return 'hl-tea';
+      if (showCls && (o.cls || []).some(c => clsSet.has(c))) return 'hl-cls';
       return null;
     };
-    const cnt = { tea: new Set(), cls: new Set(), subj: new Set() };
+    const cnt = { tea: new Set(), cls: new Set() };
     for (const eid in state.items) {
       if (eid === id || !state.placements[eid]?.day) continue;
       const k = kindOf(eid);
-      if (k === 'hl-samesubj') cnt.subj.add(eid); else if (k === 'hl-tea') cnt.tea.add(eid); else if (k === 'hl-cls') cnt.cls.add(eid);
+      if (k === 'hl-tea') cnt.tea.add(eid); else if (k === 'hl-cls') cnt.cls.add(eid);
     }
     document.body.classList.add('hl-on');
     document.querySelectorAll('.lesson[data-id], .stock-item[data-id]').forEach(el => {
@@ -6027,8 +6028,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const st = document.getElementById('status-left');
     if (st) {
       if (st.dataset.hlPrev == null) st.dataset.hlPrev = st.textContent;
-      const sc = state.subjectCfg[it.subjKey] || {};
-      st.textContent = `🟩 同じ授業(${sc.abbr || it.subj}) ${cnt.subj.size + 1}コマ　🟧 同じ先生 ${cnt.tea.size}　🟦 同じクラス ${cnt.cls.size}`;
+      const parts = [];
+      if (showTea) parts.push(`🟧 同じ先生（${(it.teas || []).join('・') || '未設定'}）の授業 ${cnt.tea.size}コマ`);
+      if (showCls) parts.push(`🟦 同じクラス（${(it.cls || []).join('・') || '未設定'}）の授業 ${cnt.cls.size}コマ`);
+      st.textContent = parts.join('　');
     }
   }
 

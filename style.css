@@ -7780,3 +7780,5 @@ body.hl-on .timetable .lesson.hl-tea { outline: 2px solid #ea580c !important; ou
 body.hl-on .timetable .lesson.hl-cls { outline: 2px dashed #2563eb !important; outline-offset: -2px; z-index: 1; }
 body.hl-on .stock-item.hl-samesubj { outline: 2px solid #16a34a; }
 body.hl-on .stock-item.hl-tea { outline: 2px solid #ea580c; }
+/* 関連表示: 同じクラスも実線で濃く（教員表示用） */
+body.hl-on .timetable .lesson.hl-cls { outline: 2px solid #2563eb !important; }
