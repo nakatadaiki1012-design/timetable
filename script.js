@@ -1250,21 +1250,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const projectName = prompt('プロジェクト名を入力（ファイル名に使用）', `時間割_${ts.slice(0, 10)}`);
     if (projectName === null) return; // キャンセル
 
-    const payload = {
-      format: PROJECT_FORMAT,
-      version: PROJECT_VERSION,
-      savedAt: now2.toISOString(),
-      projectName: projectName || `時間割_${ts.slice(0, 10)}`,
-      appVersion: document.querySelector('.ver')?.textContent || 'v61',
-      // ── コアデータ ──
-      rawRows: state.rawRows,
-      subjectCfg: state.subjectCfg,
-      teacherCfg: state.teacherCfg,
-      settings: state.settings,
-      placements: state.placements,
-      items: state.items,          // 再構築可能だが含めることで確実に復元
-      snapshots: state.snapshots,  // スナップショット履歴も保存
-    };
+    const payload = buildProjectPayload(projectName || `時間割_${ts.slice(0, 10)}`);
 
     const json = JSON.stringify(payload, null, 2);
     const blob = new Blob([json], { type: 'application/json' });
@@ -2342,30 +2328,52 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         `  授業コマ: ${pItems}　配置済み: ${pPlaced}\n\n現在の作業内容はすべて上書きされます。`) +
       `</div>` + lockOpt,
       () => {
-        pushHistory('projectImport');
-        // データ復元
-        if (Array.isArray(data.rawRows)) state.rawRows = data.rawRows;
-        if (data.subjectCfg && typeof data.subjectCfg === 'object') state.subjectCfg = data.subjectCfg;
-        if (data.teacherCfg && typeof data.teacherCfg === 'object') state.teacherCfg = data.teacherCfg;
-        if (data.settings && typeof data.settings === 'object') {
-          // 既存settingsに上書き（不完全なキーで壊れないよう）
-          Object.assign(state.settings, data.settings);
-        }
-        if (data.placements && typeof data.placements === 'object') state.placements = data.placements;
-        if (data.items && typeof data.items === 'object') state.items = normalizeItems(data.items);
-        if (lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
-        if (Array.isArray(data.snapshots)) state.snapshots = data.snapshots;
-        sanitizeState('プロジェクト読込');
-
-        invalidateIndex();
-        markDirty('projectImport');
-        rerenderAll();
-        saveNow();
+        applyProjectData(data, { lockAll, reason: 'projectImport' });
         flash(`📂 「${name}」を読み込みました${lockAll ? '（配置を固定）' : ''}`);
       },
       '読み込む', 'キャンセル',
       () => { const el = document.getElementById('proj-import-lock'); if (el) el.addEventListener('change', () => { lockAll = el.checked; }); }
     );
+  }
+
+  // プロジェクトデータ（ファイル・クラウド共通）を今の作業に反映する。元に戻す(Ctrl+Z)で直前に戻せる
+  function applyProjectData(data, opts = {}) {
+    pushHistory(opts.reason || 'projectImport');
+    if (Array.isArray(data.rawRows)) state.rawRows = data.rawRows;
+    if (data.subjectCfg && typeof data.subjectCfg === 'object') state.subjectCfg = data.subjectCfg;
+    if (data.teacherCfg && typeof data.teacherCfg === 'object') state.teacherCfg = data.teacherCfg;
+    if (data.settings && typeof data.settings === 'object') {
+      // 既存settingsに上書き（不完全なキーで壊れないよう）
+      Object.assign(state.settings, data.settings);
+    }
+    if (data.placements && typeof data.placements === 'object') state.placements = data.placements;
+    if (data.items && typeof data.items === 'object') state.items = normalizeItems(data.items);
+    if (opts.lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
+    if (Array.isArray(data.snapshots)) state.snapshots = data.snapshots;
+    sanitizeState(opts.reason === 'cloudOpen' ? 'クラウドから開く' : 'プロジェクト読込');
+    invalidateIndex();
+    markDirty(opts.reason || 'projectImport');
+    rerenderAll();
+    saveNow();
+  }
+
+  // 今の作業をプロジェクトデータ（ファイル保存・クラウド保存で共通の形）にする
+  function buildProjectPayload(projectName) {
+    sanitizeState('書き出し前');
+    return {
+      format: PROJECT_FORMAT,
+      version: PROJECT_VERSION,
+      savedAt: new Date().toISOString(),
+      projectName: projectName || '時間割',
+      appVersion: document.querySelector('.ver')?.textContent || 'v61',
+      rawRows: state.rawRows,
+      subjectCfg: state.subjectCfg,
+      teacherCfg: state.teacherCfg,
+      settings: state.settings,
+      placements: state.placements,
+      items: state.items,
+      snapshots: state.snapshots,
+    };
   }
 
   // 外部データ（プロジェクト/スナップショット/localStorage）から復元したitemsに
@@ -17825,7 +17833,9 @@ function buildIndex(){
         // トップレベルのパズル/連鎖探索(puzSearch等)が素の識別子で参照するIIFE内定数/関数。
         // これらが未公開だと puzSearch が「DAYS is not defined」でクラッシュし、
         // 連動・三角トレード・パズル(多手先読み)提案が全て無言で0件になる。
-        DAYS, DAYJP, maxPeriod, maxPeriodForItem
+        DAYS, DAYJP, maxPeriod, maxPeriodForItem,
+        // クラウド保存(cloud.js)用
+        buildProjectPayload, applyProjectData, showModalHTML, escapeHtml,
       });
     } catch (e) { }
   }
