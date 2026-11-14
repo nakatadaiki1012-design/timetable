@@ -7770,3 +7770,15 @@ body.mobile .settings-grid { grid-template-columns: 1fr !important; padding: 8px
 .cloud-body .cl-btns, .cloud-body .cl-add { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .cloud-body .cl-add input { flex: 1 1 220px; }
 .cloud-body .cloud-err { color: #b91c1c; }
+
+/* ===== コマにカーソルを合わせた時の関連表示 ===== */
+.timetable .lesson, .stock-item { transition: opacity .12s ease, filter .12s ease; }
+body.hl-on .timetable .lesson:not(.hl-linked):not(.hl-samesubj):not(.hl-tea):not(.hl-cls):not(:hover) { opacity: .28; filter: saturate(.35); }
+body.hl-on .timetable .lesson.hl-linked { outline: 3px solid #7c3aed !important; outline-offset: -2px; z-index: 4; }
+body.hl-on .timetable .lesson.hl-samesubj { outline: 3px solid #16a34a !important; outline-offset: -2px; z-index: 3; box-shadow: 0 0 0 3px rgba(22,163,74,.18); }
+body.hl-on .timetable .lesson.hl-tea { outline: 2px solid #ea580c !important; outline-offset: -2px; z-index: 2; }
+body.hl-on .timetable .lesson.hl-cls { outline: 2px dashed #2563eb !important; outline-offset: -2px; z-index: 1; }
+body.hl-on .stock-item.hl-samesubj { outline: 2px solid #16a34a; }
+body.hl-on .stock-item.hl-tea { outline: 2px solid #ea580c; }
+/* 関連表示: 同じクラスも実線で濃く（教員表示用） */
+body.hl-on .timetable .lesson.hl-cls { outline: 2px solid #2563eb !important; }

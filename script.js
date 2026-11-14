@@ -5132,6 +5132,42 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
 
 
+  // 教員を教科順に並べるときの順番。データ上の教科名の書き方（社会・理・英語 など）の違いを吸収する
+  const TEACHER_DEPT_ORDER = ['国語', '地歴', '公民', '数学', '情報', '理科', '保健体育', '芸術', '外国語', '家庭'];
+  function canonicalDept(name) {
+    const d = String(name || '').replace(/[\s　]/g, '');
+    if (!d) return '';
+    if (/国語/.test(d)) return '国語';
+    if (/地理|歴史|地歴/.test(d)) return '地歴';
+    if (/公民|政経|政治|倫理|公共/.test(d)) return '公民';
+    if (/社会/.test(d)) return '社会'; // 地歴か公民かは担当科目で決める
+    if (/数学|算数/.test(d)) return '数学';
+    if (/情報/.test(d)) return '情報';
+    if (/理科|^理$|物理|化学|生物|地学/.test(d)) return '理科';
+    if (/保健|体育/.test(d)) return '保健体育';
+    if (/芸術|音楽|美術|書道|工芸/.test(d)) return '芸術';
+    if (/外国語|英語|^英$|英会話|ALT/i.test(d)) return '外国語';
+    if (/家庭/.test(d)) return '家庭';
+    return d;
+  }
+  function teacherDeptRank(teacherName) {
+    if (teacherName === '(未)') return 999;
+    let dept = canonicalDept(inferTeacherDept(teacherName));
+    if (dept === '社会') {
+      // 「社会」の先生は、担当している授業の教科（地理歴史/公民）が多い方に入れる
+      let geo = 0, civ = 0;
+      for (const id in state.items) {
+        const it = state.items[id];
+        if (!it || !(it.teas || []).includes(teacherName)) continue;
+        const sd = canonicalDept(state.subjectCfg[it.subjKey]?.dept || it.subj);
+        if (sd === '地歴') geo++; else if (sd === '公民') civ++;
+      }
+      dept = civ > geo ? '公民' : '地歴';
+    }
+    const i = TEACHER_DEPT_ORDER.indexOf(dept);
+    return i >= 0 ? i : (dept ? 100 : 200); // 一覧に無い教科は後ろ、教科不明はさらに後ろ
+  }
+
   function inferTeacherDept(teacherName) {
     const cfg = state.teacherCfg[teacherName] || {};
     const direct = (cfg.dept || '').trim();
@@ -5173,15 +5209,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         return out;
       }
       if (state.ui.teacherSort === 'subject') {
-        // sort by (dept inferred) then name
-        keys.sort((a, b) => {
-          const da = inferTeacherDept(a);
-          const db = inferTeacherDept(b);
-          if (!da && db) return 1;
-          if (da && !db) return -1;
-          if (da !== db) return da.localeCompare(db, 'ja');
-          return a.localeCompare(b, 'ja');
-        });
+        // 教科順: 国語→地歴→公民→数学→情報→理科→保健体育→芸術→外国語→家庭→その他→(未)。同じ教科の中は名前順
+        const rank = {};
+        for (const k of keys) rank[k] = teacherDeptRank(k);
+        keys.sort((a, b) => (rank[a] - rank[b]) || a.localeCompare(b, 'ja'));
       } else {
         keys.sort((a, b) => a.localeCompare(b, 'ja'));
       }
@@ -5302,6 +5333,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
   function renderGrid() {
     const root = $('#grid'); if (!root) return;
+    try { clearRelatedHighlight(); } catch (e) { } // 描き直し時に薄い表示が残らないように
     const mode = state.ui.viewMode;
     const keysAll = getAxisKeys(mode);
     const keys = keysAll.filter(rowMatchesFilter);
@@ -5943,39 +5975,64 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
 
   // v49 B-3: 関連コマ (同教員・同クラス) のハイライト
+  // コマにカーソルを合わせた時の関連表示（それ以外は薄く表示して関連だけが目立つようにする）
+  //   紫=同じコマ（別の行に出ている同じ授業・合同・同時展開）
+  //   クラス表示では 橙=同じ先生の授業、教員表示では 青=同じクラスの授業 を濃く表示する
+  const HOVER_CLASSES = ['hl-linked', 'hl-samesubj', 'hl-tea', 'hl-cls', 'related-highlight', 'linked-hover'];
+  let _hlTimer = null, _hlActive = null;
   function highlightRelated(id, on) {
+    clearTimeout(_hlTimer);
+    if (!on) {
+      // 隣のコマへ移るときにチラつかないよう、外す処理は少し待つ
+      _hlTimer = setTimeout(() => { if (_hlActive === id) clearRelatedHighlight(); }, 60);
+      return;
+    }
+    if (document.body.classList.contains('dragging') || state.ui.selectedId) { clearRelatedHighlight(); return; }
+    _hlTimer = setTimeout(() => applyRelatedHighlight(id), 90); // 素早くなぞった時は描き直さない
+  }
+  function clearRelatedHighlight() {
+    _hlActive = null;
+    document.body.classList.remove('hl-on');
+    document.querySelectorAll('.' + HOVER_CLASSES.join(',.')).forEach(el => el.classList.remove(...HOVER_CLASSES));
+    const st = document.getElementById('status-left');
+    if (st && st.dataset.hlPrev != null) { st.textContent = st.dataset.hlPrev; delete st.dataset.hlPrev; }
+  }
+  function applyRelatedHighlight(id) {
     const it = state.items[id]; if (!it) return;
-    // 関連IDを収集
-    const relIds = new Set();
-    const idx = buildIndex();
-    for (const tea of it.teas || []) {
-      for (const d of DAYS) for (let p = 1; p <= maxPeriod(d); p++) {
-        (idx.tea?.[tea]?.[d]?.[p] || []).forEach(x => { if (x !== id) relIds.add(x); });
-      }
-    }
-    for (const cls of it.cls || []) {
-      for (const d of DAYS) for (let p = 1; p <= maxPeriod(d); p++) {
-        (idx.cls?.[cls]?.[d]?.[p] || []).forEach(x => { if (x !== id) relIds.add(x); });
-      }
-    }
-    // 連動グループ（同じコマの別行表示・並列・同時展開）は強調表示
+    clearRelatedHighlight();
+    _hlActive = id;
+    const teaSet = new Set(it.teas || []), clsSet = new Set(it.cls || []);
     const linked = linkedGroupIds(id);
-    // DOM要素に関連クラスを付与
-    document.querySelectorAll('.lesson[data-id]').forEach(el2 => {
-      const eid = el2.dataset.id;
-      if (!eid) return;
-      const isLinked = on && (linked.has(eid) && !(eid === id && el2.matches(':hover')));
-      el2.classList.toggle('linked-hover', !!isLinked);
-      if (on && relIds.has(eid) && !linked.has(eid)) el2.classList.add('related-highlight');
-      else el2.classList.remove('related-highlight');
+    // 表示ごとに濃く見せるもの: クラス表示=同じコマ＋同じ先生 / 教員表示=同じコマ＋同じクラス / 教室表示=両方
+    const mode = state.ui.viewMode;
+    const showTea = mode !== 'teacher', showCls = mode !== 'class';
+    const kindOf = (eid) => {
+      if (eid === id || linked.has(eid)) return 'hl-linked';
+      const o = state.items[eid]; if (!o) return null;
+      if (showTea && (o.teas || []).some(t => teaSet.has(t))) return 'hl-tea';
+      if (showCls && (o.cls || []).some(c => clsSet.has(c))) return 'hl-cls';
+      return null;
+    };
+    const cnt = { tea: new Set(), cls: new Set() };
+    for (const eid in state.items) {
+      if (eid === id || !state.placements[eid]?.day) continue;
+      const k = kindOf(eid);
+      if (k === 'hl-tea') cnt.tea.add(eid); else if (k === 'hl-cls') cnt.cls.add(eid);
+    }
+    document.body.classList.add('hl-on');
+    document.querySelectorAll('.lesson[data-id], .stock-item[data-id]').forEach(el => {
+      const k = kindOf(el.dataset.id);
+      if (k && !(el.dataset.id === id && el.matches(':hover'))) el.classList.add(k);
     });
-    // 在庫アイテムにも
-    document.querySelectorAll('.stock-item[data-id]').forEach(el2 => {
-      const eid = el2.dataset.id;
-      if (!eid) return;
-      if (on && relIds.has(eid)) el2.classList.add('related-highlight');
-      else el2.classList.remove('related-highlight');
-    });
+    // 件数を画面下に表示（離れたら元に戻す）
+    const st = document.getElementById('status-left');
+    if (st) {
+      if (st.dataset.hlPrev == null) st.dataset.hlPrev = st.textContent;
+      const parts = [];
+      if (showTea) parts.push(`🟧 同じ先生（${(it.teas || []).join('・') || '未設定'}）の授業 ${cnt.tea.size}コマ`);
+      if (showCls) parts.push(`🟦 同じクラス（${(it.cls || []).join('・') || '未設定'}）の授業 ${cnt.cls.size}コマ`);
+      st.textContent = parts.join('　');
+    }
   }
 
   function selectId(id, from) {
@@ -9768,8 +9825,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         (it.teas && it.teas.length ? it.teas : ['(未)']).forEach(t => set.add(t));
       }
       keys = Array.from(set).sort((a, b) => {
-        const da = inferTeacherDept(a), db = inferTeacherDept(b);
-        const ra = deptRank(da), rb = deptRank(db);
+        // 画面の「教科順」と同じ順番（国語→地歴→公民→数学→情報→理科→保健体育→芸術→外国語→家庭）
+        const ra = teacherDeptRank(a), rb = teacherDeptRank(b);
         if (ra !== rb) return ra - rb;
         return a.localeCompare(b, 'ja');
       });
