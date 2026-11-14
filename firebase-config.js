@@ -1,11 +1,11 @@
 /* Firebase の接続設定（Firebaseコンソール → プロジェクトの設定 → マイアプリ に表示される値）
    この値は公開ページに置く前提のもので、見られても問題ありません。
    データを守るのは database.rules.json（Firebaseコンソールの「ルール」に貼り付ける）です。
-   databaseURL は Realtime Database の画面の上部に表示される URL と同じであること。 */
+   databaseURL は省略可（アプリがプロジェクト名から自動で見つける）。 */
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyCHGEJ6fIjvXl7WDSxWGwlY4vCKLmpu2dU",
   authDomain: "timetable-69cee.firebaseapp.com",
-  databaseURL: "https://timetable-69cee-default-rtdb.asia-southeast1.firebasedatabase.app",
+  // databaseURL は書かなくてよい（アプリが自動で見つける）。分かっている場合は書くと少し速くなる
   projectId: "timetable-69cee",
   storageBucket: "timetable-69cee.firebasestorage.app",
   messagingSenderId: "216811889817",

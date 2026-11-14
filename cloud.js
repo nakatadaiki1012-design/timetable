@@ -24,7 +24,34 @@
   const esc = (s) => (window.escapeHtml ? window.escapeHtml(s) : String(s ?? ''));
   const say = (m, ms) => { try { window.flash(m, ms); } catch (e) { console.log(m); } };
   const newId = () => 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const configured = () => !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.databaseURL);
+  const configured = () => !!(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey && window.FIREBASE_CONFIG.projectId);
+  const LS_DBURL = 'tt_cloud_dburl_v1';
+
+  // Realtime Database の住所は「プロジェクト名＋保存場所」で決まる。設定に無い場合は候補を順に確かめて実在するものを使う。
+  //   実在するDBは（ロック中でも）401/200 を返し、存在しない住所は 404 などを返す。
+  async function resolveDatabaseURL() {
+    const cfg = window.FIREBASE_CONFIG;
+    if (cfg.databaseURL) return cfg.databaseURL;
+    try { const c = localStorage.getItem(LS_DBURL); if (c) return c; } catch (e) { }
+    const p = cfg.projectId;
+    const cands = [
+      `https://${p}-default-rtdb.asia-southeast1.firebasedatabase.app`,
+      `https://${p}-default-rtdb.firebaseio.com`,
+      `https://${p}-default-rtdb.europe-west1.firebasedatabase.app`,
+    ];
+    for (const u of cands) {
+      try {
+        const r = await fetch(u + '/.json?shallow=true', { method: 'GET' });
+        if (r.status === 200 || r.status === 401) {
+          try { localStorage.setItem(LS_DBURL, u); } catch (e) { }
+          return u;
+        }
+      } catch (e) { /* 通信できない候補は飛ばす */ }
+    }
+    const err = new Error('Realtime Database がまだ作られていないようです。Firebaseコンソールの「構築」→「Realtime Database」→「データベースを作成」で作ってください（場所はシンガポール、ルールはロックモード）。');
+    err.code = 'no-database';
+    throw err;
+  }
 
   try { cur = JSON.parse(localStorage.getItem(LS_CUR) || 'null'); } catch (e) { cur = null; }
   const saveCur = () => { try { localStorage.setItem(LS_CUR, JSON.stringify(cur)); } catch (e) { } updateBadge(); };
@@ -46,7 +73,9 @@
         await loadScript(SDK + 'firebase-database-compat.js');
       }
       fb = window.firebase;
-      const app = fb.apps.length ? fb.app() : fb.initializeApp(window.FIREBASE_CONFIG);
+      const cfg = { ...window.FIREBASE_CONFIG };
+      if (!emu) cfg.databaseURL = await resolveDatabaseURL();
+      const app = fb.apps.length ? fb.app() : fb.initializeApp(cfg);
       auth = app.auth(); db = app.database();
       if (emu) { auth.useEmulator('http://127.0.0.1:9099'); db.useEmulator('127.0.0.1', 9000); }
       await new Promise(r => { const off = auth.onAuthStateChanged(u => { user = u; off(); r(); }); });
