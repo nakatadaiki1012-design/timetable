@@ -7782,3 +7782,9 @@ body.hl-on .stock-item.hl-samesubj { outline: 2px solid #16a34a; }
 body.hl-on .stock-item.hl-tea { outline: 2px solid #ea580c; }
 /* 関連表示: 同じクラスも実線で濃く（教員表示用） */
 body.hl-on .timetable .lesson.hl-cls { outline: 2px solid #2563eb !important; }
+/* 関連表示の濃さ調整: 関係ないコマは読める程度に薄く、関係あるコマはよりくっきり */
+body.hl-on .timetable .lesson:not(.hl-linked):not(.hl-samesubj):not(.hl-tea):not(.hl-cls):not(:hover) { opacity: .5; filter: saturate(.6); }
+body.hl-on .timetable .lesson.hl-linked { outline: 3px solid #6d28d9 !important; outline-offset: -3px; box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(109,40,217,.55) !important; }
+body.hl-on .timetable .lesson.hl-tea { outline: 3px solid #c2410c !important; outline-offset: -3px; box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(234,88,12,.5) !important; }
+body.hl-on .timetable .lesson.hl-cls { outline: 3px solid #1d4ed8 !important; outline-offset: -3px; box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(37,99,235,.5) !important; }
+body.hl-on .timetable .lesson.hl-linked, body.hl-on .timetable .lesson.hl-tea, body.hl-on .timetable .lesson.hl-cls { filter: saturate(1.25) contrast(1.05); }
