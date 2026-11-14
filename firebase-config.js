@@ -1,0 +1,13 @@
+/* Firebase の接続設定（Firebaseコンソール → プロジェクトの設定 → マイアプリ に表示される値）
+   この値は公開ページに置く前提のもので、見られても問題ありません。
+   データを守るのは database.rules.json（Firebaseコンソールの「ルール」に貼り付ける）です。
+   databaseURL は省略可（アプリがプロジェクト名から自動で見つける）。 */
+window.FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCHGEJ6fIjvXl7WDSxWGwlY4vCKLmpu2dU",
+  authDomain: "timetable-69cee.firebaseapp.com",
+  // databaseURL は書かなくてよい（アプリが自動で見つける）。分かっている場合は書くと少し速くなる
+  projectId: "timetable-69cee",
+  storageBucket: "timetable-69cee.firebasestorage.app",
+  messagingSenderId: "216811889817",
+  appId: "1:216811889817:web:8d27547433b93b12214408"
+};

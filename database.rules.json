@@ -1,0 +1,51 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "timetables": {
+      "$tt": {
+        ".read": "auth != null && auth.token.email_verified == true && (data.child('meta/owner').val() === auth.uid || data.child('members').child(auth.token.email.toLowerCase().replace('.', ',')).exists())",
+
+        "meta": {
+          ".write": "auth != null && auth.token.email_verified == true && ((!data.exists() && newData.child('owner').val() === auth.uid) || (data.child('owner').val() === auth.uid && (!newData.exists() || newData.child('owner').val() === auth.uid)) || (newData.child('owner').val() === data.child('owner').val() && data.parent().child('members').child(auth.token.email.toLowerCase().replace('.', ',')).val() === 'edit'))",
+          ".validate": "newData.hasChildren(['owner', 'name', 'updatedAt'])",
+          "owner": { ".validate": "newData.isString()" },
+          "ownerEmail": { ".validate": "newData.isString()" },
+          "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 100" },
+          "updatedAt": { ".validate": "newData.isNumber()" },
+          "updatedBy": { ".validate": "newData.isString()" },
+          "$other": { ".validate": false }
+        },
+
+        "members": {
+          ".write": "auth != null && auth.token.email_verified == true && (data.parent().child('meta/owner').val() === auth.uid || (!data.parent().child('meta').exists() && newData.parent().child('meta/owner').val() === auth.uid))",
+          "$emailKey": { ".validate": "newData.val() === 'view' || newData.val() === 'edit'" }
+        },
+
+        "data": {
+          ".write": "auth != null && auth.token.email_verified == true && (data.parent().child('meta/owner').val() === auth.uid || (!data.parent().child('meta').exists() && newData.parent().child('meta/owner').val() === auth.uid) || data.parent().child('members').child(auth.token.email.toLowerCase().replace('.', ',')).val() === 'edit')",
+          ".validate": "newData.isString() && newData.val().length < 10000000"
+        }
+      }
+    },
+
+    "userTimetables": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$tt": { ".validate": "newData.isString() && newData.val().length <= 100" }
+      }
+    },
+
+    "sharedWith": {
+      "$emailKey": {
+        ".read": "auth != null && auth.token.email_verified == true && auth.token.email.toLowerCase().replace('.', ',') === $emailKey",
+        "$tt": {
+          ".write": "auth != null && (root.child('timetables').child($tt).child('meta/owner').val() === auth.uid || newData.parent().parent().parent().child('timetables').child($tt).child('meta/owner').val() === auth.uid)",
+          ".validate": "newData.isString() && newData.val().length <= 100"
+        }
+      }
+    }
+  }
+}

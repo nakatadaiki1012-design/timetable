@@ -7757,3 +7757,16 @@ body.mobile .float-win .float-resize-handle { display: none; }
 body.mobile .atw-tiles { justify-content: center; }
 /* 設定画面のカードは1列で余白を詰める */
 body.mobile .settings-grid { grid-template-columns: 1fr !important; padding: 8px !important; gap: 8px !important; }
+
+/* ☁ クラウド */
+.cloud-body { min-width: min(560px, 86vw); max-height: 65vh; overflow: auto; text-align: left; }
+.cloud-body h4 { margin: 12px 0 6px; font-size: 14px; }
+.cloud-body .cl-user { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cloud-body .cl-list { list-style: none; margin: 0; padding: 0; }
+.cloud-body .cl-item { display: flex; align-items: center; gap: 8px; padding: 6px 4px; border-bottom: 1px solid #e2e8f0; flex-wrap: wrap; }
+.cloud-body .cl-item.on { background: #eff6ff; }
+.cloud-body .cl-name { flex: 1 1 160px; font-weight: 700; word-break: break-all; }
+.cloud-body .cl-role { font-size: 12px; color: #475569; }
+.cloud-body .cl-btns, .cloud-body .cl-add { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.cloud-body .cl-add input { flex: 1 1 220px; }
+.cloud-body .cloud-err { color: #b91c1c; }
