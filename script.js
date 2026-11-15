@@ -9180,6 +9180,36 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         consider([{ id, day: d, period: p, span }]);
       }
     }
+    // 1b) 合同授業（複数クラス）・クラスをまたぐ入替:
+    //     移動先の時限に「関係するクラスそれぞれの授業」が1コマずつある場合、それらを丸ごと元の時限へ移す。
+    //     移動先のコマが関係クラス以外のクラスも含む場合や、ロック・長さ違いは対象外
+    {
+      const clsSet = new Set(it.cls || []);
+      const idx0 = buildIndex(); // 試すたびに作り直さないよう、最初の索引を使い回す
+      for (const d of DAYS) {
+        const maxP = maxPeriod(d);
+        for (let p = 1; p + span - 1 <= maxP; p++) {
+          if (Date.now() > deadline) break;
+          if (d === plc.day && p === plc.period) continue;
+          const others = new Set();
+          let ok = true;
+          for (let k = 0; k < span && ok; k++) {
+            for (const c of clsSet) {
+              for (const oid of (idx0.cls?.[c]?.[d]?.[p + k] || [])) {
+                if (oid === id) continue;
+                const o = state.items[oid], op = state.placements[oid];
+                if (!o || !op || op.locked || (o.span || 1) !== span || op.period !== p || !(o.cls || []).every(x => clsSet.has(x))) { ok = false; break; }
+                others.add(oid);
+              }
+              if (!ok) break;
+            }
+          }
+          if (!ok || !others.size) continue;
+          if (others.size === 1 && peers.includes([...others][0])) continue; // 1対1の入替は上で試し済み
+          consider([{ id, day: d, period: p, span }, ...[...others].map(oid => ({ id: oid, day: plc.day, period: plc.period, span }))]);
+        }
+      }
+    }
     // 3) 同じクラス内の3コマ回転（入替で直らない時だけ）
     if (!best) {
       const lim = Math.min(peers.length, 18);
@@ -9210,6 +9240,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       let changed = 0;
       for (const id of ids) {
         if (Date.now() >= end) break;
+        if (opts.shouldStop && opts.shouldStop()) { pass = 99; break; }
         const fix = bestSoftFixFor(id, Math.min(end, Date.now() + 600));
         if (fix) {
           if (!histPushed) { pushHistory('polish'); histPushed = true; }
@@ -17162,9 +17193,16 @@ function buildIndex(){
         // 未配置ゼロ かつ 違反ゼロ のときのみ「実行不要」として終了する。
         const hardVio0 = hardViolationsFromPlacements(basePlacements);
         if (!unplaced0.length && hardVio0 === 0) {
-          flash('未配置・違反ともにありません（探索不要）');
-          aiRunner.running = false;
-          btnRun.textContent = 'AI探索開始'; btnRun.classList.remove('danger'); btnRun.disabled = false;
+          // 全コマ配置済み・違反なし: 配置探索は不要なので、探索時間を「時間割の質の改善」
+          // （先生の4連続/3連続・同じ授業の時間帯の偏り）に使う。停止ボタンで途中終了できる
+          const budget = Math.max(5, sec || 30) * 1000;
+          if (statusEl) statusEl.textContent = '全コマ配置済み → 時間割の質を改善中…';
+          polishTeacherRunsAndSpread({ budgetMs: budget, shouldStop: () => aiRunner.stop })
+            .catch(e => console.warn('[polish]', e))
+            .finally(() => {
+              aiRunner.running = false; aiRunner.stop = false;
+              btnRun.textContent = 'AI探索開始'; btnRun.classList.remove('danger'); btnRun.disabled = false;
+            });
           return;
         }
 
