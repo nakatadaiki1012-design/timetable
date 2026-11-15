@@ -3998,7 +3998,14 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     showToast(`🔥 ヒート外し：色付きセルから${picked.length}コマを退避（Shift=多め / Alt=熱2以上 / Ctrl=ロック含む）`, 'info');
   }
 
-  function clampInt(v, lo, hi) { return Math.max(lo, Math.min(hi, v | 0)); }
+  // 数値を整数にして範囲内に収める。数値にできない時（空欄など）は既定値 def（無ければ下限）を使う。
+  // 以前は既定値を受け取らない版と受け取る版が別々にあり、起動時に前者が後者を上書きしていたため、
+  // 「試行」「秒」の欄が空だと 30 ではなく 1 や「時間無制限」になっていた。
+  function clampInt(v, lo, hi, def) {
+    const n = (typeof v === 'number') ? Math.trunc(v) : parseInt(v, 10);
+    if (!Number.isFinite(n)) return def !== undefined ? def : lo;
+    return Math.max(lo, Math.min(hi, n));
+  }
 
   function _printFontCSS(fontFam) {
     if (fontFam === 'gothic')  return '"Hiragino Sans","Yu Gothic","Meiryo",sans-serif';
@@ -8609,11 +8616,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
       // 連続授業: この配置で先生が3連続/4連続以上になるなら減点（4連続は特に重く）
       {
-        let L = 0, add = 0;
-        for (let p = 1; p <= maxP + 1; p++) {
-          if (lunchAfter && p === lunchAfter + 1) { add += teacherRunPenalty(L); L = 0; }
-          if (set.has(p)) L++; else { add += teacherRunPenalty(L); L = 0; }
-        }
+        const add = teacherRunScore(set, day);
         pen += add * 3 + (add >= 10 ? add * 9 : 0);
       }
     }
@@ -8656,11 +8659,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (maxD != null && ps.length > maxD) cost += (ps.length - maxD) * 6;
       // 連続授業（3連続=3、4連続=30、5連続=60）
       {
-        const set = new Set(ps); let L = 0, add = 0; const maxP = maxPeriod(d);
-        for (let p = 1; p <= maxP + 1; p++) {
-          if (lunchAfter && p === lunchAfter + 1) { add += teacherRunPenalty(L); L = 0; }
-          if (set.has(p)) L++; else { add += teacherRunPenalty(L); L = 0; }
-        }
+        const add = teacherRunScore(new Set(ps), d);
         cost += add * 3 + (add >= 10 ? add * 9 : 0); // 4連続以上は提案ではほぼ選ばない重さに
       }
     }
@@ -9177,18 +9176,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     // 先生の連続授業
     for (const t in idx.tea) for (const d of DAYS) {
       const dm = idx.tea[t]?.[d]; if (!dm) continue;
-      const maxP = maxPeriod(d);
-      let run = [];
-      const flush = () => {
-        if (run.length >= 3) {
-          if (run.length >= 4) stat.run4++; else stat.run3++;
-          for (const p of run) for (const id of (dm[p] || [])) bump(id, run.length >= 4 ? 30 : 10);
-        }
-        run = [];
-      };
-      for (let p = 1; p <= maxP + 1; p++) {
-        if (lunchAfter && p === lunchAfter + 1) flush();
-        if ((dm[p] || []).length) run.push(p); else flush();
+      const taught = new Set(Object.keys(dm).filter(p => (dm[p] || []).length).map(Number));
+      for (const run of teacherRuns(taught, d)) {
+        if (run.length < 3) continue;
+        if (run.length >= 4) stat.run4++; else stat.run3++;
+        for (const p of run) for (const id of (dm[p] || [])) bump(id, run.length >= 4 ? 30 : 10);
       }
     }
     // 同じ授業の時間帯の偏り
@@ -11109,6 +11101,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   // 教員の連続授業ペナルティ（常に有効）。3連続=30、4連続=300、5連続=600 相当
   const TEACHER_RUN_W = 30;
   function teacherRunPenalty(L) { return L >= 4 ? (L - 3) * 10 : (L === 3 ? 1 : 0); }
+  // 先生のその日の授業時限（集合）から、昼休みで区切った「連続した時限のまとまり」を返す（AI・提案・改善処理で共通）
+  function teacherRuns(periodSet, day) {
+    const lunchAfter = Number(state.settings.lunchAfter || 0);
+    const maxP = maxPeriod(day);
+    const runs = []; let run = [];
+    const flush = () => { if (run.length) runs.push(run); run = []; };
+    for (let p = 1; p <= maxP + 1; p++) {
+      if (lunchAfter && p === lunchAfter + 1) flush();
+      if (periodSet.has(p)) run.push(p); else flush();
+    }
+    return runs;
+  }
+  // 連続授業の点数（3連続=1点、4連続以上=(L-3)×10点）の合計
+  const teacherRunScore = (periodSet, day) => teacherRuns(periodSet, day).reduce((a, r) => a + teacherRunPenalty(r.length), 0);
   // 同じ授業が1時間目ばかり・午後ばかりに偏るのを避ける重み（常に有効）
   const SUBJ_SPREAD_W = 40;
   // 学校のルール: 3年の体育は、入れる日には3年の全クラスに入れる（1クラスだけ無い日は不公平）。
@@ -11147,14 +11153,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const ps = byDay[day];
       // 連続授業: 昼休みで区切った連続コマ数 L について、3連続=1点、4連続以上=(L-3)×10点
       // （4連続はできるだけ無くし、3連続もなるべく減らす）
-      {
-        let L = 0;
-        const maxP = maxPeriod(day);
-        for (let p = 1; p <= maxP + 1; p++) {
-          if (lunchAfter && p === lunchAfter + 1) { run += teacherRunPenalty(L); L = 0; }
-          if (ps.has(p)) L++; else { run += teacherRunPenalty(L); L = 0; }
-        }
-      }
+      run += teacherRunScore(ps, day);
       balance += ps.size * ps.size;
       if (ps.size < 2) continue;
       let mn = Infinity, mx = -Infinity;

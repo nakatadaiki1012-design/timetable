@@ -1,0 +1,16 @@
+{
+  "name": "timetable",
+  "private": true,
+  "description": "時間割作成アプリ（ブラウザだけで動く静的ページ）。テスト用の設定のみ。",
+  "type": "module",
+  "scripts": {
+    "test": "node tests/run.mjs",
+    "test:cloud": "firebase emulators:exec --only database,auth --project timetable-69cee \"node tests/cloud-rules.test.mjs\""
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "10.14.1",
+    "firebase-tools": "^13.35.1",
+    "playwright-core": "^1.56.0"
+  }
+}

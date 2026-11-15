@@ -1,0 +1,4 @@
+node_modules/
+real.ide
+*.ide.local
+tests/.tmp-*
