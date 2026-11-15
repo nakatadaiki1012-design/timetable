@@ -7794,3 +7794,10 @@ body.hl-on .timetable .lesson.hl-linked { outline: 4px solid #5b21b6 !important;
 body.hl-on .timetable .lesson.hl-tea { outline: 4px solid #9a3412 !important; outline-offset: -4px; box-shadow: 0 0 0 2px #fff, 0 0 14px 4px rgba(234,88,12,.75) !important; }
 body.hl-on .timetable .lesson.hl-cls { outline: 4px solid #1e3a8a !important; outline-offset: -4px; box-shadow: 0 0 0 2px #fff, 0 0 14px 4px rgba(37,99,235,.75) !important; }
 body.hl-on .timetable .lesson.hl-linked, body.hl-on .timetable .lesson.hl-tea, body.hl-on .timetable .lesson.hl-cls { filter: saturate(1.5) contrast(1.15); z-index: 5; position: relative; }
+
+/* 教員一覧・クラス一覧の窓でも、カーソルを合わせたカードに関係するカードを濃くする */
+.atw-hl-on .atw-card:not(.atw-hl-self):not(.atw-hl-tea):not(.atw-hl-cls) { opacity: .7; filter: saturate(.75); }
+.atw-hl-on .atw-card.atw-hl-self { outline: 3px solid #5b21b6; outline-offset: -2px; box-shadow: 0 0 0 1px #fff, 0 0 8px 2px rgba(91,33,182,.75); position: relative; z-index: 3; filter: saturate(1.5) contrast(1.15); }
+.atw-hl-on .atw-card.atw-hl-tea { outline: 3px solid #9a3412; outline-offset: -2px; box-shadow: 0 0 0 1px #fff, 0 0 8px 2px rgba(234,88,12,.75); position: relative; z-index: 2; filter: saturate(1.5) contrast(1.15); }
+.atw-hl-on .atw-card.atw-hl-cls { outline: 3px solid #1e3a8a; outline-offset: -2px; box-shadow: 0 0 0 1px #fff, 0 0 8px 2px rgba(37,99,235,.75); position: relative; z-index: 2; filter: saturate(1.5) contrast(1.15); }
+.atw-count { white-space: nowrap; }

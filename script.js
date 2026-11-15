@@ -15195,8 +15195,46 @@ function buildIndex(){
       });
     };
 
+    // 関連表示: カードにカーソルを合わせると、クラス一覧では同じ先生、教員一覧では同じクラスのカードを濃くする
+    let _atwHlTimer = null;
+    tilesEl.addEventListener('mouseover', (e) => {
+      const card = e.target.closest('.atw-card[data-id]'); if (!card) return;
+      clearTimeout(_atwHlTimer);
+      _atwHlTimer = setTimeout(() => atwApplyHighlight(el, kind, card.dataset.id), 80);
+    });
+    tilesEl.addEventListener('mouseout', (e) => {
+      const card = e.target.closest('.atw-card[data-id]'); if (!card) return;
+      const to = e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest('.atw-card[data-id]');
+      if (to) return; // 隣のカードへ移る時は消さない（チラつき防止）
+      clearTimeout(_atwHlTimer);
+      _atwHlTimer = setTimeout(() => atwApplyHighlight(el, kind, null), 60);
+    });
+
     // 描画
     _atwRender(el, tilesEl, kind, keys);
+  }
+
+  function atwApplyHighlight(win, kind, id) {
+    win.querySelectorAll('.atw-hl-self,.atw-hl-tea,.atw-hl-cls').forEach(c => c.classList.remove('atw-hl-self', 'atw-hl-tea', 'atw-hl-cls'));
+    win.classList.toggle('atw-hl-on', !!id);
+    const cnt = win.querySelector('.atw-count');
+    if (cnt && cnt.dataset.prev != null && !id) { cnt.textContent = cnt.dataset.prev; delete cnt.dataset.prev; }
+    if (!id) return;
+    const it = state.items[id]; if (!it) return;
+    const linked = linkedGroupIds(id);
+    const teaSet = new Set(it.teas || []), clsSet = new Set(it.cls || []);
+    const byTea = kind === 'class'; // クラス一覧=同じ先生、教員一覧=同じクラス
+    let n = 0;
+    win.querySelectorAll('.atw-card[data-id]').forEach(c => {
+      const eid = c.dataset.id;
+      if (eid === id || linked.has(eid)) { c.classList.add('atw-hl-self'); return; }
+      const o = state.items[eid]; if (!o) return;
+      if (byTea ? (o.teas || []).some(t => teaSet.has(t)) : (o.cls || []).some(x => clsSet.has(x))) { c.classList.add(byTea ? 'atw-hl-tea' : 'atw-hl-cls'); n++; }
+    });
+    if (cnt) {
+      if (cnt.dataset.prev == null) cnt.dataset.prev = cnt.textContent;
+      cnt.textContent = byTea ? `🟧 同じ先生（${(it.teas || []).join('・') || '未設定'}） ${n}コマ` : `🟦 同じクラス（${(it.cls || []).join('・') || '未設定'}） ${n}コマ`;
+    }
   }
 
   function _atwRender(el, tilesEl, kind, keys) {
