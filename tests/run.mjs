@@ -1,0 +1,257 @@
+/* 時間割アプリの自動テスト（画面を実際にブラウザで動かして確かめる）
+   実行:  npm install  →  npm test
+   ブラウザの場所を指定する場合:  CHROMIUM_PATH=/path/to/chrome npm test
+   使うデータは tests/fixtures/ の架空の学校（実在の先生・生徒の情報は含まない）。
+
+   リファクタリングの前後でこのテストがすべて通ることを確かめてから変更を取り込む。 */
+import http from 'http';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { chromium } from 'playwright-core';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const FIX = path.join(ROOT, 'tests', 'fixtures');
+const ONLY = process.argv[2] || '';
+
+// ── 小さな静的ファイルサーバ ──
+const TYPES = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css', '.json': 'application/json', '.ide': 'application/octet-stream' };
+const server = http.createServer((req, res) => {
+  const p = path.join(ROOT, decodeURIComponent(new URL(req.url, 'http://x').pathname));
+  if (!p.startsWith(ROOT) || !fs.existsSync(p) || fs.statSync(p).isDirectory()) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'content-type': TYPES[path.extname(p)] || 'application/octet-stream' });
+  fs.createReadStream(p).pipe(res);
+});
+await new Promise(r => server.listen(0, '127.0.0.1', r));
+const BASE = `http://127.0.0.1:${server.address().port}/index.html`;
+
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox'] });
+const results = [];
+async function test(name, fn) {
+  if (ONLY && !name.includes(ONLY)) return;
+  const t0 = Date.now();
+  try { await fn(); results.push({ name, ok: true, ms: Date.now() - t0 }); process.stdout.write(`✓ ${name}\n`); }
+  catch (e) { results.push({ name, ok: false, err: e.message }); process.stdout.write(`✗ ${name}\n    ${e.message}\n`); }
+}
+const assert = (c, msg) => { if (!c) throw new Error(msg); };
+
+// ページを開いてデータを読み込む
+async function openApp(opts = {}) {
+  const ctx = await browser.newContext(opts.mobile
+    ? { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }
+    : { viewport: { width: opts.width || 1440, height: 900 }, acceptDownloads: true });
+  const pg = await ctx.newPage();
+  pg.errs = [];
+  pg.on('pageerror', e => pg.errs.push(e.message));
+  pg.on('dialog', d => d.accept(opts.prompt || 'テスト校').catch(() => { }));
+  await pg.goto(BASE); await pg.waitForTimeout(500);
+  if (opts.load !== false) await loadFile(pg, opts.load || 'sample-project.json');
+  pg.close2 = () => ctx.close();
+  return pg;
+}
+async function loadFile(pg, name) {
+  await pg.setInputFiles('#project-load-file', path.join(FIX, name));
+  await pg.waitForSelector('#modal-ok', { state: 'visible', timeout: 10000 });
+  await pg.evaluate(() => document.getElementById('modal-ok').click());
+  await pg.waitForTimeout(800);
+}
+const counts = (pg) => pg.evaluate(() => ({
+  items: Object.keys(state.items).length,
+  placed: Object.values(state.placements).filter(p => p && p.day).length,
+}));
+const hardViolations = (pg) => pg.evaluate(() => {
+  let n = 0;
+  for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) n += (validatePlacement(id, p.day, p.period, 'safe', null).blocks || []).length; }
+  return n;
+});
+const placementSig = (pg) => pg.evaluate(() => {
+  const m = [];
+  for (const id in state.items) { const p = state.placements[id], it = state.items[id]; if (p && p.day) for (const t of it.teas) m.push(t + '|' + p.day + p.period + '|' + it.subj + '|' + it.cls.join(',')); }
+  return m.sort().join('\n');
+});
+const fixture = JSON.parse(fs.readFileSync(path.join(FIX, 'sample-project.json'), 'utf8'));
+const FIX_ITEMS = Object.keys(fixture.items).length;
+const FIX_PLACED = Object.values(fixture.placements).filter(p => p && p.day).length;
+
+// ── テスト ──
+await test('プロジェクトファイルを読み込める', async () => {
+  const pg = await openApp();
+  const c = await counts(pg);
+  assert(c.items === FIX_ITEMS && c.placed === FIX_PLACED, `コマ数が違う ${JSON.stringify(c)} 期待 ${FIX_ITEMS}/${FIX_PLACED}`);
+  assert(await hardViolations(pg) === 0, '衝突がある');
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
+await test('ブラウザに保存され、再読込しても同じ', async () => {
+  const pg = await openApp();
+  const before = await placementSig(pg);
+  await pg.evaluate(() => { state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); });
+  await pg.reload(); await pg.waitForTimeout(800);
+  assert(await placementSig(pg) === before, '再読込で配置が変わった');
+  await pg.close2();
+});
+
+await test('保存データが壊れても1つ前の控えから復旧する', async () => {
+  const pg = await openApp();
+  const before = await counts(pg);
+  await pg.evaluate(() => { state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); });
+  await pg.evaluate(() => localStorage.setItem('ultimate_tt_state_v271', '{"broken'));
+  await pg.reload(); await pg.waitForTimeout(800);
+  const after = await counts(pg);
+  assert(after.items === before.items && after.placed === before.placed, `復旧できない ${JSON.stringify(after)}`);
+  const kept = await pg.evaluate(() => Object.keys(localStorage).some(k => k.includes('__damaged_')));
+  assert(kept, '壊れたデータが退避されていない');
+  await pg.close2();
+});
+
+await test('壊れたプロジェクトファイルでも止まらず修理して読み込む', async () => {
+  const pg = await openApp({ load: false });
+  const bad = { format: 'idea-timetable-project', projectName: '壊れ', rawRows: [{ _id: 'r1', cls: '1-1', subj: '数学', tea: '山田', count: 2 }, 'x', null],
+    items: { a: { subj: '数学', cls: '1-1', teas: '山田', span: '2' }, b: { subj: null }, c: 'junk' },
+    placements: { a: { day: 'Mon', period: '2' }, b: { day: 'Xyz', period: 1 }, ghost: { day: 'Tue', period: 1 } }, settings: { lunchAfter: 4 }, teacherCfg: [] };
+  const f = path.join(FIX, '..', '.tmp-bad.json'); fs.writeFileSync(f, JSON.stringify(bad));
+  await pg.setInputFiles('#project-load-file', f); await pg.waitForTimeout(800);
+  await pg.evaluate(() => document.getElementById('modal-ok').click()); await pg.waitForTimeout(800);
+  fs.unlinkSync(f);
+  const r = await pg.evaluate(() => ({ a: state.items.a, ghost: 'ghost' in state.placements, b: state.placements.b, pbd: state.settings.periodsByDay }));
+  assert(Array.isArray(r.a.cls) && r.a.span === 2, 'コマの形が直っていない');
+  assert(!r.ghost && r.b === null && r.pbd && r.pbd.Mon, '配置や設定が直っていない');
+  for (const t of ['edit', 'input', 'subject', 'teacher', 'print', 'school']) { await pg.click('#tab-' + t); await pg.waitForTimeout(200); }
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
+await test('イデア形式(.ide)で書き出して読み直すと同じ配置', async () => {
+  const pg = await openApp();
+  const before = await placementSig(pg);
+  const [dl] = await Promise.all([pg.waitForEvent('download'), pg.evaluate(() => document.getElementById('btn-idea-export').click())]);
+  const f = path.join(FIX, '..', '.tmp-export.ide'); await dl.saveAs(f);
+  await pg.setInputFiles('#project-load-file', f); await pg.waitForTimeout(1000);
+  await pg.evaluate(() => document.getElementById('modal-ok').click()); await pg.waitForTimeout(1000);
+  fs.unlinkSync(f);
+  const after = await placementSig(pg);
+  assert(after === before, `配置が変わった（前 ${before.split('\n').length} 件 / 後 ${after.split('\n').length} 件）`);
+  await pg.close2();
+});
+
+await test('イデアの.ideファイルを読み込める', async () => {
+  const pg = await openApp({ load: 'sample-idea.ide' });
+  const c = await counts(pg);
+  assert(c.placed === FIX_PLACED, `配置数が違う ${c.placed} 期待 ${FIX_PLACED}`);
+  assert(await hardViolations(pg) === 0, '衝突がある');
+  await pg.close2();
+});
+
+await test('データ登録→作成画面へ戻しても配置が残る', async () => {
+  const pg = await openApp();
+  const before = await counts(pg);
+  await pg.click('#tab-input'); await pg.waitForTimeout(300);
+  await pg.click('#btn-reflect'); await pg.waitForTimeout(800);
+  const ok = await pg.$('#modal-ok'); if (ok && await ok.isVisible()) await ok.click();
+  await pg.waitForTimeout(500);
+  const after = await counts(pg);
+  assert(after.placed === before.placed, `配置が減った ${before.placed}→${after.placed}`);
+  await pg.close2();
+});
+
+await test('全タブ・主な窓がエラーなく開き、画面からはみ出さない（PC/スマホ）', async () => {
+  for (const mobile of [false, true]) {
+    const pg = await openApp({ mobile });
+    for (const t of ['school', 'input', 'subject', 'teacher', 'print', 'edit']) {
+      await pg.evaluate(t => document.getElementById('tab-' + t).click(), t); await pg.waitForTimeout(400);
+      const w = await pg.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+      assert(w <= 1, `${mobile ? 'スマホ' : 'PC'} ${t} が横にはみ出す (${w}px)`);
+    }
+    for (const id of ['btn-analyze', 'btn-all-classes', 'btn-all-teachers']) {
+      await pg.evaluate(id => document.getElementById(id).click(), id); await pg.waitForTimeout(600);
+      await pg.keyboard.press('Escape'); await pg.waitForTimeout(200);
+    }
+    assert(!pg.errs.length, pg.errs.join(' | '));
+    await pg.close2();
+  }
+});
+
+await test('提案の窓が開き、候補が出る', async () => {
+  const pg = await openApp();
+  await pg.click('#tab-edit'); await pg.waitForTimeout(400);
+  await pg.click('input[name=viewmode][value=class]'); await pg.waitForTimeout(400);
+  await (await pg.$$('.timetable td .lesson'))[10].click(); await pg.waitForTimeout(200);
+  await pg.keyboard.press('s');
+  await pg.waitForSelector('.js-matrix-cell', { timeout: 15000 });
+  const n = await pg.$$eval('.js-matrix-cell', c => c.length);
+  assert(n > 0, '候補がない');
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
+await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {
+  const pg = await openApp();
+  await pg.click('#tab-edit'); await pg.waitForTimeout(300);
+  const before = await placementSig(pg);
+  await pg.click('#btn-polish');
+  await pg.waitForFunction(() => !document.getElementById('btn-polish').disabled, null, { timeout: 60000 });
+  assert(await hardViolations(pg) === 0, '衝突が出た');
+  await pg.keyboard.press('Control+z'); await pg.waitForTimeout(600);
+  const after = await placementSig(pg);
+  const changed = await pg.evaluate(() => /改善 (\d+)手/.exec(document.getElementById('ai-status').textContent)?.[1] || '0');
+  assert(changed === '0' || after === before, '元に戻らない');
+  await pg.close2();
+});
+
+await test('コマにカーソルを合わせると関連が濃くなる', async () => {
+  const pg = await openApp();
+  await pg.click('#tab-edit'); await pg.waitForTimeout(300);
+  await pg.click('input[name=viewmode][value=class]'); await pg.waitForTimeout(400);
+  await (await pg.$$('.timetable td .lesson'))[5].hover(); await pg.waitForTimeout(300);
+  const r = await pg.evaluate(() => ({ on: document.body.classList.contains('hl-on'), tea: document.querySelectorAll('.hl-tea').length }));
+  assert(r.on && r.tea > 0, '関連表示が出ない');
+  await pg.mouse.move(5, 5); await pg.waitForTimeout(300);
+  assert(!(await pg.evaluate(() => document.body.classList.contains('hl-on'))), '関連表示が消えない');
+  await pg.close2();
+});
+
+await test('教員の教科順が指定どおり', async () => {
+  const pg = await openApp();
+  await pg.click('#tab-edit'); await pg.waitForTimeout(300);
+  await pg.evaluate(() => { state.ui.teacherSort = 'subject'; rerenderAll(); }); await pg.waitForTimeout(400);
+  const rows = await pg.evaluate(() => [...document.querySelectorAll('.timetable tbody tr')].map(tr => tr.dataset.row).filter(r => /^先生/.test(r)));
+  const order = [...new Set(rows.map(r => r[2]))].join('');
+  assert(order === 'ADEBJCGHFI', `順番が違う: ${order}（国語A→地歴D→公民E→数学B→情報J→理科C→保体G→芸術H→外国語F→家庭I）`);
+  await pg.close2();
+});
+
+await test('学校のルール: 自選は指定曜日の最後のコマだけ・3年体育の公平性', async () => {
+  const pg = await openApp();
+  const r = await pg.evaluate(() => {
+    // 自選の試験用コマを一時的に作る
+    state.items.__j = { id: '__j', subj: '自由選択(金)1', subjKey: '自由選択(金)1', cls: ['3-1'], teas: ['先生X'], rooms: [], span: 1 };
+    invalidateIndex();
+    const last = maxPeriod('Fri');
+    const v = (d, p) => validatePlacement('__j', d, p, 'safe', null).blocks.some(b => /自選/.test(b));
+    const out = { lastOk: !v('Fri', last), midBlocked: v('Fri', 1), otherDayBlocked: v('Thu', last) };
+    delete state.items.__j; invalidateIndex();
+    return out;
+  });
+  assert(r.lastOk && r.midBlocked && r.otherDayBlocked, '自選のルール: ' + JSON.stringify(r));
+  await pg.close2();
+});
+
+await test('スマホ表示: 曜日切替・在庫の引き出し・長押しの関連表示', async () => {
+  const pg = await openApp({ mobile: true });
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(500);
+  assert(await pg.evaluate(() => document.body.classList.contains('mobile')), 'スマホ表示にならない');
+  await pg.tap('.mb-day[data-mday="Tue"]'); await pg.waitForTimeout(300);
+  const vis = await pg.evaluate(() => [...document.querySelectorAll('.timetable thead th[data-day]')].filter(th => th.offsetParent).map(th => th.dataset.day));
+  assert(vis.every(d => d === 'Tue'), '火曜だけにならない');
+  await pg.tap('#mb-stock'); await pg.waitForTimeout(300);
+  assert(await pg.evaluate(() => document.body.classList.contains('stock-open')), '在庫が開かない');
+  await pg.tap('#mb-stock'); await pg.waitForTimeout(300);
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
+await browser.close(); server.close();
+const ng = results.filter(r => !r.ok);
+console.log(`\n${results.length - ng.length} / ${results.length} 合格`);
+process.exit(ng.length ? 1 : 0);
