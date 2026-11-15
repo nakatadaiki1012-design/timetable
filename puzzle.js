@@ -3,7 +3,7 @@
 
 // Global helpers (hoisted, accessible from inside IIFE via scope chain)
 function clampNum(v, a, b, d) { if (Number.isNaN(v) || v == null) return d; return Math.max(a, Math.min(b, v)); }
-function clampInt(v, a, b, d) { const n = parseInt(v, 10); if (Number.isNaN(n)) return d; return Math.max(a, Math.min(b, n)); }
+// clampInt は script.js の1つに統一（window.clampInt として公開）
 
 
 
