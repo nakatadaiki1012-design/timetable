@@ -6015,6 +6015,39 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (document.body.classList.contains('dragging') || state.ui.selectedId) { clearRelatedHighlight(); return; }
     _hlTimer = setTimeout(() => applyRelatedHighlight(id), 90); // 素早くなぞった時は描き直さない
   }
+  // スマホ・タブレット: コマを長押しすると関連表示（カーソルを合わせる操作の代わり）。
+  // 次にどこかをタップすると消える。長押しで右クリックメニューが出ないようにする
+  (function initLongPressHighlight() {
+    let timer = null, startX = 0, startY = 0, shownAt = 0, touchAt = 0;
+    const start = () => {
+      document.addEventListener('touchstart', (e) => {
+        touchAt = Date.now();
+        if (shownAt && Date.now() - shownAt > 300) { clearRelatedHighlight(); shownAt = 0; }
+        const card = e.target.closest && e.target.closest('.timetable .lesson[data-id]');
+        clearTimeout(timer); if (!card || e.touches.length !== 1) return;
+        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+        timer = setTimeout(() => { applyRelatedHighlight(card.dataset.id); shownAt = Date.now(); try { navigator.vibrate && navigator.vibrate(15); } catch (er) { } }, 450);
+      }, { passive: true });
+      document.addEventListener('touchmove', (e) => {
+        const t = e.touches[0]; if (!t) return;
+        if (Math.abs(t.clientX - startX) > 10 || Math.abs(t.clientY - startY) > 10) clearTimeout(timer); // スクロールなら取り消す
+      }, { passive: true });
+      document.addEventListener('touchend', () => {
+        clearTimeout(timer);
+        // 長押しで関連表示を出した直後の指離しは「タップ（選択）」として扱わない
+        if (shownAt && Date.now() - shownAt < 2000) {
+          const kill = (ev) => { ev.preventDefault(); ev.stopPropagation(); };
+          document.addEventListener('click', kill, { capture: true, once: true });
+          setTimeout(() => document.removeEventListener('click', kill, true), 600);
+        }
+      }, { passive: true });
+      // 長押しで出る右クリックメニュー（ブラウザ・アプリ両方）を抑える
+      document.addEventListener('contextmenu', (e) => {
+        if (Date.now() - touchAt < 1200 && e.target.closest && e.target.closest('.lesson[data-id]')) { e.preventDefault(); e.stopPropagation(); }
+      }, true);
+    };
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
+  })();
   function clearRelatedHighlight() {
     _hlActive = null;
     document.body.classList.remove('hl-on');
