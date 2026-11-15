@@ -18,6 +18,21 @@
   let fb = null, auth = null, db = null, user = null, loading = null;
   let cur = null;        // {id, name, role, updatedAt}
   let unwatch = null;
+  // 自動保存: 変更があれば一定時間ごとにクラウドへ上書き保存（他の人の新しい保存がある時は止める）
+  const LS_AUTO = 'tt_cloud_autosave_v1';
+  const AUTO_MS = (emu && window.__CLOUD_AUTO_MS) || 60 * 1000;
+  let autoOn = false, lastCloudLocal = 0, autoBlocked = false, autoBusy = false;
+  try { autoOn = localStorage.getItem(LS_AUTO) === '1'; } catch (e) { }
+  setInterval(async () => {
+    try {
+      if (!autoOn || autoBusy || autoBlocked || !user || !cur || cur.role === 'view' || !db) return;
+      const local = window.state && window.state.autosave && window.state.autosave.lastSaved;
+      if (!local || local <= lastCloudLocal) return; // 前回のクラウド保存から変更なし
+      autoBusy = true;
+      await saveOver({ auto: true });
+    } catch (e) { console.warn('[cloud autosave]', e); }
+    finally { autoBusy = false; }
+  }, AUTO_MS);
 
   const emailKey = (e) => String(e || '').trim().toLowerCase().replace(/\./g, ',');
   const keyToEmail = (k) => String(k || '').replace(/,/g, '.');
@@ -126,9 +141,10 @@
       ['userTimetables/' + user.uid + '/' + id]: name,
     });
     cur = { id, name, role: 'owner', updatedAt: t }; saveCur(); watch(id);
+    lastCloudLocal = (window.state && window.state.autosave && window.state.autosave.lastSaved) || Date.now(); autoBlocked = false;
     say('☁ 「' + name + '」をクラウドに保存しました');
   }
-  async function saveOver() {
+  async function saveOver(opts = {}) {
     if (!cur) throw new Error('クラウドの時間割が選ばれていません');
     if (cur.role === 'view') throw new Error('この時間割は「見るだけ」で共有されているため、上書きできません。「新しく保存」で自分の時間割として保存できます');
     const metaSnap = await db.ref('timetables/' + cur.id + '/meta').get();
@@ -137,13 +153,17 @@
     // 他の人が後から保存していたら、上書きしてよいか確認
     if (meta.updatedAt > (cur.updatedAt || 0) && meta.updatedBy !== user.email) {
       const when = new Date(meta.updatedAt).toLocaleString('ja-JP');
+      // 自動保存では他の人の変更を上書きしない（知らせて止める）
+      if (opts.auto) { say(`☁ ${meta.updatedBy} さんが ${when} に保存しているため、自動保存を止めました。「☁ クラウド」から開き直すか、上書き保存してください`, 8000); autoBlocked = true; return false; }
       if (!confirm(`${meta.updatedBy} さんが ${when} に保存した内容があります。\nこのまま保存すると、その変更は上書きされて消えます。\n\n上書きしますか？（キャンセルして「開く」で最新を読み込むこともできます）`)) return false;
     }
     const payload = window.buildProjectPayload(cur.name);
     const t = Date.now();
     await db.ref('timetables/' + cur.id).update({ data: JSON.stringify(payload), 'meta/updatedAt': t, 'meta/updatedBy': user.email });
     cur.updatedAt = t; saveCur();
-    say('☁ 「' + cur.name + '」をクラウドに上書き保存しました');
+    lastCloudLocal = (window.state && window.state.autosave && window.state.autosave.lastSaved) || Date.now();
+    autoBlocked = false;
+    say(opts.auto ? '☁ 自動保存しました' : '☁ 「' + cur.name + '」をクラウドに上書き保存しました', opts.auto ? 1500 : undefined);
     return true;
   }
 
@@ -157,6 +177,7 @@
     window.applyProjectData(data, { reason: 'cloudOpen' });
     const role = v.meta.owner === user.uid ? 'owner' : ((v.members || {})[emailKey(user.email)] || 'view');
     cur = { id: item.id, name: v.meta.name, role, updatedAt: v.meta.updatedAt }; saveCur(); watch(item.id);
+    lastCloudLocal = Date.now() + 2000; autoBlocked = false; // 開いた直後の読込は「変更」に数えない
     say('☁ 「' + v.meta.name + '」を開きました' + (role === 'view' ? '（見るだけ）' : ''));
     return true;
   }
@@ -250,7 +271,9 @@
         <div class="cl-btns">
           ${cur && cur.role !== 'view' ? '<button class="btn primary" id="cl-save">クラウドに上書き保存</button>' : ''}
           <button class="btn secondary" id="cl-saveas">新しくクラウドに保存</button>
-        </div></div>
+        </div>
+        ${cur && cur.role !== 'view' ? `<label class="chk" style="display:flex;gap:6px;align-items:center;margin-top:6px"><input type="checkbox" id="cl-auto"${autoOn ? ' checked' : ''}> 変更を1分ごとに自動でクラウドへ保存する</label>
+          <div class="muted small">他の人が後から保存していた時は、上書きせずに止めてお知らせします。</div>` : ''}</div>
       <div class="cl-sec"><h4>自分の時間割</h4>${mine.length ? '<ul class="cl-list">' + mine.map(row).join('') + '</ul>' : '<div class="muted">ありません</div>'}</div>
       <div class="cl-sec"><h4>共有された時間割</h4>${shared.length ? '<ul class="cl-list">' + shared.map(row).join('') + '</ul>' : '<div class="muted">ありません</div>'}</div>`;
     if (isOwner) {
@@ -269,7 +292,8 @@
     setBody(html);
     const $ = (s) => document.getElementById(s);
     $('cl-logout').onclick = act(async () => { await auth.signOut(); });
-    if ($('cl-save')) $('cl-save').onclick = act(saveOver);
+    if ($('cl-save')) $('cl-save').onclick = act(() => saveOver());
+    if ($('cl-auto')) $('cl-auto').onchange = (e) => { autoOn = e.target.checked; autoBlocked = false; try { localStorage.setItem(LS_AUTO, autoOn ? '1' : '0'); } catch (er) { } say(autoOn ? '☁ 自動保存をオンにしました' : '☁ 自動保存をオフにしました'); };
     $('cl-saveas').onclick = act(async () => {
       const name = prompt('クラウドに保存する名前', (cur && cur.name) || ('時間割 ' + new Date().toLocaleDateString('ja-JP')));
       if (name && name.trim()) await saveAs(name.trim().slice(0, 100));
@@ -301,7 +325,7 @@
 
   // 開発・試験用（試験用データベース使用時のみ）
   if (emu) window.__cloud = {
-    ensureFirebase, saveAs, saveOver, open, setMember, removeMember, deleteTimetable, listMine, listShared,
+    ensureFirebase, saveAs, saveOver, open, setAuto(v) { autoOn = v; }, get autoBlocked() { return autoBlocked; }, setMember, removeMember, deleteTimetable, listMine, listShared,
     get user() { return user; }, get cur() { return cur; },
     async testLogin(email) {
       await ensureFirebase();
