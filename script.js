@@ -7580,7 +7580,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     document.addEventListener('keydown', escHandler);
   }
 
-  function openPropSuggestions(id) {
+  async function openPropSuggestions(id) {
     try { if (!id) id = ((window.state || state).ui || {}).selectedId; } catch (e) { }
     if (!id) return;
     try { selectId(id, state.ui.selectedFrom || 'grid'); } catch (e) { }
@@ -7675,6 +7675,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     window.addEventListener('keydown', _sugPopupKeyHandler, true);
 
     let sugBox = overlay.querySelector('#sug-popup-content') || document.getElementById('sug-popup-content');
+    // 先に窓を出して「計算中」を見せてから計算する（以前は計算が終わるまで画面が固まって見えた）
+    if (sugBox) sugBox.innerHTML = '<div class="sug-loading" style="padding:40px;text-align:center;color:#475569;font-weight:700">🔍 移動先を計算中…（何手も先まで読んでいます）</div>';
+    const __openToken = (openPropSuggestions._token = (openPropSuggestions._token || 0) + 1);
+    await new Promise(r => requestAnimationFrame(() => setTimeout(r, 0)));
+    if (__openToken !== openPropSuggestions._token || overlay.style.display === 'none') return; // 計算前に閉じた/別のコマを開いた
     let pack = null; try { pack = computeSuggestionPack(id); } catch (e) { console.error('computeSuggestionPack', e); showModal('エラー', '提案の計算でエラー: ' + e.message); return; }
     const tabs = [
       { k: 'empty', label: '🟢 空き枠' },
