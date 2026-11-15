@@ -6541,9 +6541,14 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const deptOf = (id) => (state.subjectCfg[state.items[id]?.subjKey]?.dept) || '';
     const subjKeyOf = (id) => (state.items[id]?.subjKey) || '';
     const clsOf = (id) => (state.items[id]?.cls || []).join(',');
-    const key = (id) => `${deptOf(id)}${subjKeyOf(id)}${clsOf(id)}${id}`;
-
-    const ids = idsAll.slice().sort((a, b) => key(a).localeCompare(key(b), 'ja'));
+    const key = (id) => `${subjKeyOf(id)}${clsOf(id)}${id}`;
+    // 教科の並びは教員の「教科順」と同じ（国語→地歴→公民→数学→情報→理科→保健体育→芸術→外国語→家庭→その他→未設定）
+    const deptRankOf = (id) => {
+      const d = canonicalDept(deptOf(id));
+      const i = TEACHER_DEPT_ORDER.indexOf(d === '社会' ? '地歴' : d);
+      return i >= 0 ? i : (deptOf(id) ? 100 : 200);
+    };
+    const ids = idsAll.slice().sort((a, b) => (deptRankOf(a) - deptRankOf(b)) || deptOf(a).localeCompare(deptOf(b), 'ja') || key(a).localeCompare(key(b), 'ja'));
 
     if (!byDept) {
       ids.forEach(id => list.appendChild(stockItemEl(id)));
