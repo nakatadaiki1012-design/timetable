@@ -2722,7 +2722,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   }
 
   let __idxCache = null;
-  function invalidateIndex() { __idxCache = null; }
+  function invalidateIndex() { __idxCache = null; _jisenCache = null; }
 
   function buildIndex() {
     if (__idxCache) return __idxCache;
@@ -2893,7 +2893,32 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return starts > 0;
   }
 
+  // 学校のルール: 自選（自由選択）は名前の曜日（例: 自由選択(金)→金曜）の、その学年の最後のコマ（2連なら最後の2コマ）にしか置けない。
+  // 3年生は授業を取っていない生徒が多いため、途中のコマには入れられない。
+  let _jisenCache = null;
+  const JISEN_DAY = { '月': 'Mon', '火': 'Tue', '水': 'Wed', '木': 'Thu', '金': 'Fri', '土': 'Sat' };
+  function jisenRule(subjKey) {
+    if (!/自選|自由選択/.test(subjKey || '')) return null;
+    if (!_jisenCache) _jisenCache = {};
+    if (_jisenCache[subjKey] !== undefined) return _jisenCache[subjKey];
+    const m = String(subjKey).match(/[（(]\s*([月火水木金土])\s*[)）]/);
+    const day = m ? JISEN_DAY[m[1]] : null;
+    // その授業を受けるクラスの「その曜日の最後の時限」と、コマの長さ
+    let span = 1; const lastByDay = {};
+    for (const id in state.items) {
+      const it = state.items[id]; if (!it || it.subjKey !== subjKey) continue;
+      span = Math.max(span, it.span || 1);
+      for (const d of DAYS) { const mp = maxPeriodForItem(it, d); lastByDay[d] = lastByDay[d] == null ? mp : Math.min(lastByDay[d], mp); }
+    }
+    return (_jisenCache[subjKey] = { day, span, lastByDay });
+  }
   function isForbiddenForSubject(subjKey, day, period) {
+    const jr = jisenRule(subjKey);
+    if (jr) {
+      if (jr.day && day !== jr.day) return true;
+      const last = jr.lastByDay[day];
+      if (last != null && (period > last || period < last - jr.span + 1)) return true;
+    }
     const scfg = state.subjectCfg[subjKey] || {};
     // allowedMode: only listed slots are allowed; everything else is forbidden
     if (scfg.allowedMode && scfg.allowedSlots && Object.keys(scfg.allowedSlots).length) {
@@ -2931,7 +2956,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // fixed forbid
     for (let dp = 0; dp < it.span; dp++) {
-      if (isForbiddenForSubject(it.subjKey, day, period + dp)) blocks.push(`固定禁則: ${DAYJP[day]}${period + dp}`);
+      if (isForbiddenForSubject(it.subjKey, day, period + dp)) blocks.push(jisenRule(it.subjKey) ? `自選は${(jisenRule(it.subjKey).day && DAYJP[jisenRule(it.subjKey).day]) || '指定の曜日'}の最後のコマにしか置けません` : `固定禁則: ${DAYJP[day]}${period + dp}`);
     }
 
     // teacher unavailable & conflicts
@@ -8596,6 +8621,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         cost += add * 3 + (add >= 10 ? add * 9 : 0); // 4連続以上は提案ではほぼ選ばない重さに
       }
     }
+    // 3年の体育: 入れる日には3年の全クラスに（体育が無いクラス1つにつき30点）
+    if (clsList.some(c => new RegExp('^' + PE_GRADE + '-\\d+$').test(c))) cost += peFairPenalty(state.placements) * 30;
     // 同じ授業が1時間目ばかり・午後ばかりになっていないか（クラスごと・週全体）
     for (const c of clsList) {
       const agg = {}; const seenA = new Set();
@@ -9136,6 +9163,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         if (a.pm.length > Math.max(1, Math.ceil(a.n / 2))) { stat.pm++; a.pm.forEach(id => bump(id, 15)); }
       }
     }
+    // 3年の体育が一部のクラスにしか無い日 → その日の体育を動かす候補に
+    {
+      const before = peFairPenalty(state.placements); stat.pe = before;
+      if (before > 0) for (const id in state.items) { const it = state.items[id]; if (/体育/.test(it.subj || '') && (it.cls || []).some(c => new RegExp('^' + PE_GRADE + '-').test(c))) bump(id, 25); }
+    }
     const ids = Object.keys(prio).sort((x, y) => prio[y] - prio[x]);
     return { ids, stat };
   }
@@ -9255,7 +9287,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
     const after = softProblemIds().stat;
     if (applied) { markDirty('place'); rerenderAll(); broadcastState(); }
-    const msg = `🧹 改善 ${applied}手: 4連続 ${before.run4}→${after.run4}・3連続 ${before.run3}→${after.run3}・1時間目の偏り ${before.first}→${after.first}・午後の偏り ${before.pm}→${after.pm}`;
+    const msg = `🧹 改善 ${applied}手: 4連続 ${before.run4}→${after.run4}・3連続 ${before.run3}→${after.run3}・1時間目の偏り ${before.first}→${after.first}・午後の偏り ${before.pm}→${after.pm}` + ((before.pe || after.pe) ? `・3年体育が無いクラス ${before.pe}→${after.pe}` : '');
     if (statusEl) statusEl.textContent = msg;
     if (!opts.silent) flash(msg);
     return { before, after, applied };
@@ -11036,6 +11068,24 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   function teacherRunPenalty(L) { return L >= 4 ? (L - 3) * 10 : (L === 3 ? 1 : 0); }
   // 同じ授業が1時間目ばかり・午後ばかりに偏るのを避ける重み（常に有効）
   const SUBJ_SPREAD_W = 40;
+  // 学校のルール: 3年の体育は、入れる日には3年の全クラスに入れる（1クラスだけ無い日は不公平）。
+  // 体育がある日に、体育が無い3年のクラス1つにつき PE_FAIR_W 点の減点
+  const PE_FAIR_W = 300;
+  const PE_GRADE = '3';
+  function peFairPenalty(placements) {
+    const isPE = (it) => /体育/.test(it.subj || '') && !/保健/.test(it.subj || '');
+    const gradeCls = new Set(); const byDay = {};
+    for (const id in state.items) {
+      const it = state.items[id]; if (!it) continue;
+      for (const c of (it.cls || [])) if (new RegExp('^' + PE_GRADE + '-\\d+$').test(c)) gradeCls.add(c);
+      if (!isPE(it)) continue;
+      const p = placements[id]; if (!p || !p.day) continue;
+      for (const c of (it.cls || [])) if (gradeCls.has(c) || new RegExp('^' + PE_GRADE + '-\\d+$').test(c)) (byDay[p.day] || (byDay[p.day] = new Set())).add(c);
+    }
+    let pen = 0;
+    for (const d in byDay) { const n = byDay[d].size; if (n > 0 && n < gradeCls.size) pen += gradeCls.size - n; }
+    return pen;
+  }
   // 1教員分の教員系ソフト生値:
   //   gap     = 各曜日で最初〜最後の授業の間の空き時限数（中抜け）の合計
   //   balance = 各曜日の担当コマ数の二乗和（小さいほど曜日間で平準化される）
@@ -11140,7 +11190,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
     const score = (optBalance ? bias : 0) + (optNoConsec ? consec * 4 : 0) + noSameDayPenalty
       + (gapOn ? teaGap * TEACHER_GAP_W : 0) + (balOn ? teaBal * TEACHER_BAL_W : 0) + teaRun * TEACHER_RUN_W;
-    return { bias, consec, noSameDayPenalty, teaGap, teaBal, teaRun, score };
+    const peFair = peFairPenalty(placements);
+    return { bias, consec, noSameDayPenalty, teaGap, teaBal, teaRun, peFair, score: score + peFair * PE_FAIR_W };
   }
 
   // 未配置ペナルティ重み。配置数維持モードではハード違反(×100000)より重くして、
@@ -12859,12 +12910,15 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         _biasT += r.bias; _consecT += r.consec; _noSameT += r.noSameDay;
       }
       if (_teaOn) for (const t in _itemsByTea) { const r = teacherSoftContribution(placements, t, _itemsByTea[t]); _scGap[t] = r.gap; _scBal[t] = r.balance; _scRun[t] = r.run; _gapT += r.gap; _balT += r.balance; _runT += r.run; }
+      _peT = peFairPenalty(placements);
     }
     function _flaggedSoft() {
       return (optBalance ? _biasT : 0) + (optNoConsec ? _consecT * 4 : 0) + _noSameT
-        + (_gapOn ? _gapT * TEACHER_GAP_W : 0) + (_balOn ? _balT * TEACHER_BAL_W : 0) + _runT * TEACHER_RUN_W;
+        + (_gapOn ? _gapT * TEACHER_GAP_W : 0) + (_balOn ? _balT * TEACHER_BAL_W : 0) + _runT * TEACHER_RUN_W + _peT * PE_FAIR_W;
     }
+    let _peT = 0;
     function _updateSoftForClasses(classes) {
+      _peT = peFairPenalty(placements);
       for (const c of classes) {
         const r = classSoftContribution(placements, c, _itemsByClass[c] || []);
         _biasT += r.bias - (_scBias[c] || 0);
@@ -12937,7 +12991,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         for (const t of affTea) { const r = teacherSoftContribution(placements, t, _itemsByTea[t] || []); dG += r.gap - (_scGap[t] || 0); dBal += r.balance - (_scBal[t] || 0); dRun += r.run - (_scRun[t] || 0); }
       }
       const newSoft = _flaggedSoft() + (optBalance ? dB : 0) + (optNoConsec ? dC * 4 : 0) + dN
-        + (_gapOn ? dG * TEACHER_GAP_W : 0) + (_balOn ? dBal * TEACHER_BAL_W : 0) + dRun * TEACHER_RUN_W;
+        + (_gapOn ? dG * TEACHER_GAP_W : 0) + (_balOn ? dBal * TEACHER_BAL_W : 0) + dRun * TEACHER_RUN_W
+        + (peFairPenalty(placements) - _peT) * PE_FAIR_W;
       const newTotal = newHard * 100000 + newSoft + _cache.remain * _remainW;
 
       // 元に戻す
@@ -17019,6 +17074,29 @@ function buildIndex(){
     };
     if ($('#ai-rand')) { $('#ai-rand').addEventListener('input', updRand); updRand(); }
     $('#btn-ai').onclick = () => aiPlaceAll();
+    // 学校のルール: 水曜は30分×6時間のため、LHRを持っている専任の先生は水曜⑤⑥の出勤不可を外してよい
+    $('#btn-tea-wed56')?.addEventListener('click', () => {
+      const lhr = new Set();
+      for (const id in state.items) { const it = state.items[id]; if (/ＬＨＲ|LHR|ロングホーム/.test(it.subj || '')) (it.teas || []).forEach(t => lhr.add(t)); }
+      const targets = [];
+      for (const t of lhr) {
+        const cfg = state.teacherCfg[t]; if (!cfg) continue;
+        if (cfg.allowedMode) continue; // 出勤可能指定モードの先生は対象外（非常勤の扱い）
+        const wed = (cfg.unavailable && cfg.unavailable.Wed) || [];
+        const rm = wed.filter(p => p === 5 || p === 6);
+        if (rm.length) targets.push({ t, rm, rest: wed.filter(p => p !== 5 && p !== 6) });
+      }
+      if (!targets.length) { flash('水曜⑤⑥が出勤不可になっているLHR担当の先生はいません'); return; }
+      const list = targets.map(x => `・${x.t}（水曜 ${x.rm.join('・')}限を外す${x.rest.length ? `／水曜 ${x.rest.join('・')}限は出勤不可のまま` : ''}）`).join('\n');
+      showModal('水曜⑤⑥の出勤不可を外します',
+        `LHRを担当している専任の先生 ${targets.length}名の、水曜5・6限の出勤不可を外します。\n\n${list}\n\nLHRを担当していない先生（非常勤など）は変更しません。Ctrl+Zで元に戻せます。`,
+        () => {
+          pushHistory('wed56');
+          for (const x of targets) { state.teacherCfg[x.t].unavailable.Wed = x.rest; }
+          markDirty('teacher'); rerenderAll();
+          flash(`✓ ${targets.length}名の水曜⑤⑥の出勤不可を外しました`);
+        });
+    });
     $('#btn-polish')?.addEventListener('click', async (ev) => {
       const b = ev.currentTarget; if (b.disabled) return;
       b.disabled = true; const t = b.textContent; b.textContent = '🧹 改善中…';
