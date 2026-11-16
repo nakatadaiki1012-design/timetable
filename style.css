@@ -170,11 +170,7 @@ body {
 }
 
 /* 小さい画面用: 特定ボタンを隠す */
-@media(max-width:900px) {
-  .header-hide-sm {
-    display: none !important
-  }
-}
+
 
 @media(max-width:700px) {
   .brand .title {
@@ -672,36 +668,6 @@ body {
   align-content: start
 }
 
-.stock-group {
-  border: 1px solid #e5e7eb;
-  border-radius: 12px;
-  overflow: hidden
-}
-
-.stock-group-head {
-  background: #f8fafc;
-  padding: 6px 8px;
-  font-weight: 1000;
-  display: flex;
-  gap: 8px;
-  align-items: center;
-  cursor: pointer;
-  user-select: none;
-  border-left: 8px solid #cbd5e1
-}
-
-.stock-group-head .count {
-  margin-left: auto;
-  color: var(--muted);
-  font-weight: 1000
-}
-
-.stock-group-body {
-  padding: 8px;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(var(--stockItemW, 128px), 1fr));
-  gap: 8px
-}
 
 .chip {
   font-size: 11px;
@@ -1191,134 +1157,9 @@ body {
 }
 
 /* Visual flow cards wrapper */
-.move-flow-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  margin: 4px 0
-}
 
 /* v43: New compact move flow cards */
-.mfc {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border-radius: 9px;
-  background: #f8fafc;
-  border: 1.5px solid #e2e8f0;
-  transition: background .15s
-}
 
-.mfc-focus {
-  background: #ecfdf5;
-  border-color: #86efac;
-  box-shadow: 0 0 0 2px rgba(134, 239, 172, .2)
-}
-
-.mfc-badge {
-  padding: 4px 8px;
-  border-radius: 7px;
-  font-weight: 900;
-  font-size: 12px;
-  min-width: 40px;
-  text-align: center;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .18);
-  flex-shrink: 0;
-  white-space: nowrap
-}
-
-.mfc-meta {
-  flex: 1;
-  min-width: 0
-}
-
-.mfc-name {
-  font-size: 10px;
-  color: #64748b;
-  font-weight: 700;
-  margin-bottom: 3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis
-}
-
-.mfc-tea {
-  color: #7c3aed;
-  margin-left: 4px
-}
-
-.mfc-span {
-  background: #dbeafe;
-  color: #1e40af;
-  padding: 0 4px;
-  border-radius: 4px;
-  font-size: 9px
-}
-
-.mfc-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px
-}
-
-.mfc-from,
-.mfc-to {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 900
-}
-
-.mfc-from {
-  background: #fef2f2;
-  border: 1.5px solid #fca5a5;
-  color: #991b1b
-}
-
-.mfc-from.mfc-stock {
-  background: #fef9c3;
-  border-color: #fde047;
-  color: #713f12
-}
-
-.mfc-to {
-  background: #f0fdf4;
-  border: 1.5px solid #86efac;
-  color: #166534
-}
-
-.mfc-arrow {
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-  margin: 0 2px
-}
-
-.mfc-displaced {
-  margin-top: 4px;
-  font-size: 10px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-  color: #92400e
-}
-
-.mfc-displaced-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 2px 6px;
-  border-radius: 5px;
-  font-size: 9px;
-  font-weight: 900;
-  border: 1.5px solid rgba(0, 0, 0, .15);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, .15)
-}
 
 .smg-title-mover {
   color: #1d4ed8
@@ -1333,16 +1174,6 @@ body {
   background: #fffbeb !important
 }
 
-.mfc-day {
-  font-size: 12px;
-  font-weight: 900
-}
-
-.mfc-per {
-  font-size: 10px;
-  margin-left: 2px;
-  opacity: .85
-}
 
 .sug-item.sug-warn {
   border-color: #fbbf24 !important;
@@ -1360,40 +1191,9 @@ body {
 }
 
 /* Keep old move-flow for compat, but hide */
-.move-flow-card {
-  display: none
-}
 
 /* Mini timetable details (collapsible) */
-.sug-mini-tt-details {
-  margin-top: 4px
-}
 
-.sug-mini-tt-details summary {
-  cursor: pointer;
-  font-size: 11px;
-  color: #64748b;
-  font-weight: 700;
-  padding: 4px 6px;
-  background: #f8fafc;
-  border-radius: 6px;
-  list-style: none;
-  user-select: none
-}
-
-.sug-mini-tt-details summary::-webkit-details-marker {
-  display: none
-}
-
-.sug-mini-tt-details summary:hover {
-  background: #f1f5f9
-}
-
-.sug-mini-tt-details[open] summary {
-  margin-bottom: 6px;
-  background: #e0e7ff;
-  color: #3730a3
-}
 
 /* Button row */
 .sug-item .btnrow {
@@ -1460,64 +1260,6 @@ body {
   flex-wrap: wrap
 }
 
-.sug-tabs {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap
-}
-
-.sug-tab {
-  padding: 5px 10px;
-  border-radius: 10px;
-  border: 1.5px solid #e5e7eb;
-  background: #fff;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 11px;
-  color: #64748b;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  transition: all .2s
-}
-
-.sug-tab:hover {
-  background: #f8fafc;
-  border-color: #cbd5e1
-}
-
-.sug-tab.active {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-  color: #fff;
-  border-color: #3b82f6;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, .3)
-}
-
-.sug-tab-badge {
-  background: #f1f5f9;
-  color: #64748b;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 900;
-  min-width: 22px;
-  text-align: center
-}
-
-.sug-tab.active .sug-tab-badge {
-  background: rgba(255, 255, 255, .25);
-  color: #fff
-}
-
-.sug-tab-badge.has-items {
-  background: #dbeafe;
-  color: #1e40af
-}
-
-.sug-tab.active .sug-tab-badge.has-items {
-  background: rgba(255, 255, 255, .35);
-  color: #fff
-}
 
 .sug-hint {
   font-size: 10px;
@@ -1526,24 +1268,11 @@ body {
 }
 
 /* List — 2列グリッド */
-.sug-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  align-items: start;
-}
 
 /* 幅が狭い場合は1列にフォールバック */
-@media(max-width:700px) {
-  .sug-list {
-    grid-template-columns: 1fr
-  }
-}
+
 
 /* 候補なしメッセージはフルwidthで */
-.sug-list>.prop-empty {
-  grid-column: 1/-1
-}
 
 /* v42: 提案カード内ミニ個人窓グリッド */
 .sug-mini-grids {
@@ -1639,10 +1368,6 @@ body {
 .smg-arr-lbl  { color: #94a3b8; font-size: 11px; }
 
 /* 退(退避) — 橙の二重線 */
-.smg-table .smg-displaced-cell {
-  border: 3px double #f59e0b !important;
-  box-shadow: 0 0 0 1px rgba(245, 158, 11, .3)
-}
 
 .status {
   height: 34px;
@@ -1802,15 +1527,6 @@ body.stock-top.thin .stock {
   flex-direction: column
 }
 
-body.stock-top .stock-group {
-  width: auto;
-  max-width: 100%
-}
-
-body.stock-top.thin .stock-group {
-  width: auto;
-  max-width: 100%
-}
 
 body.prop-hide .prop {
   display: none
@@ -1934,9 +1650,6 @@ body.prop-hide #split-prop {
   margin-bottom: 0
 }
 
-.card.expanded {
-  grid-column: 1/-1;
-}
 
 /* v32.2: lesson text alignment (prevent right drift) */
 .lesson .l1 {
@@ -2018,9 +1731,6 @@ body.prop-hide #split-prop {
   display: none
 }
 
-.card.expanded .tile-summary {
-  display: none
-}
 
 /* v32.2 settings compact */
 .settings-grid .card {
@@ -2238,12 +1948,6 @@ body[data-stock-size="xl"] .stock-item .si-name {
   opacity: 1
 }
 
-.lesson .cont-mark {
-  flex: 0 0 auto;
-  font-size: calc(var(--meta) + var(--metaAdj));
-  opacity: .6;
-  margin-left: 2px
-}
 
 .lesson.span-cont .l2 {
   display: none
@@ -2437,15 +2141,6 @@ body[data-stock-size="xl"] .stock-item .si-name {
   font-size: calc(11px * var(--uiScale));
 }
 
-.ui-scale {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.ui-scale .btn {
-  min-width: 30px;
-}
 
 .zoom-ctrl {
   display: flex;
@@ -2583,9 +2278,6 @@ body[data-stock-size="xl"] .stock-item .si-name {
   text-align: center
 }
 
-.cell-overflow-badge.parallel-badge {
-  background: rgba(37, 99, 235, .85)
-}
 
 /* v49: 並列授業グループ視覚化 */
 .parallel-stack {
@@ -2766,18 +2458,6 @@ body[data-stock-size="xl"] {
   --stockItemW: 200px;
 }
 
-.stock-size-ctrl {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.stock-size-ctrl .btn {
-  min-width: 26px;
-  text-align: center;
-  padding: 2px 5px;
-  font-size: 12px;
-}
 
 /* stock-top: horizontal scroll with properly sized non-overlapping cards */
 body.stock-top .stock-list {
@@ -2810,18 +2490,6 @@ body.stock-top .stock-sep {
   margin-top: 4px;
 }
 
-body.stock-top .stock-group {
-  display: contents;
-}
-
-body.stock-top .stock-group-head {
-  display: flex;
-  flex: 0 0 100%;
-}
-
-body.stock-top .stock-group-body {
-  display: contents;
-}
 
 /* v32.5: cell overflow badge */
 .cell-overflow-badge {
@@ -2845,71 +2513,7 @@ body.stock-top .stock-group-body {
 }
 
 /* v32.5: mini timetable in suggestions */
-.mini-tt-wrap {
-  overflow-x: auto;
-  margin: 6px 0;
-  border-radius: 8px;
-  border: 1px solid #e2e8f0;
-  background: #fafbfc
-}
 
-.mini-tt {
-  border-collapse: collapse;
-  font-size: 11px;
-  min-width: 100%;
-  background: #fff
-}
-
-.mini-tt th {
-  background: #f1f5f9;
-  padding: 4px 7px;
-  font-weight: 1000;
-  text-align: center;
-  border: 1px solid #e5e7eb;
-  font-size: 10px;
-  color: #64748b
-}
-
-.mini-tt td {
-  border: 1px solid #e5e7eb;
-  padding: 4px 5px;
-  min-width: 56px;
-  height: 32px;
-  vertical-align: middle
-}
-
-.mini-tt .mini-tt-empty {
-  background: #f8fafc
-}
-
-.mini-tt .mini-tt-cell {
-  background: #fff;
-  text-align: center
-}
-
-.mini-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  border-radius: 6px;
-  padding: 2px 6px;
-  font-size: 10px;
-  font-weight: 900;
-  margin: 1px;
-  cursor: default;
-  white-space: nowrap;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, .1)
-}
-
-.mini-chip.mini-from {
-  border: 2px solid #ef4444;
-  background-color: rgba(254, 226, 226, .9)
-}
-
-.mini-chip.mini-to {
-  border: 2px solid #22c55e;
-  background-color: rgba(240, 253, 244, .9)
-}
 
 .sug-move-table {
   width: 100%;
@@ -3177,10 +2781,6 @@ body.stock-top .stock-group-body {
 }
 
 /* v32.6: column resizer for input table */
-.resizable-th {
-  position: relative;
-  padding-right: 14px !important
-}
 
 .col-resizer {
   position: absolute;
@@ -3298,78 +2898,9 @@ body.stock-top .stock-group-body {
   font-weight: 1000
 }
 
-.mini-cal td.allowed-mode .mini-cal-head {
-  background: #f0fdf4
-}
-
-.allow-mode-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  padding: 4px 8px;
-  background: #f0fdf4;
-  border: 1px solid #a7f3d0;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 900
-}
 
 /* v33.0: mini drag placement popup */
-.drag-pop {
-  position: fixed;
-  z-index: 3000;
-  background: #0b1220;
-  color: #e2e8f0;
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, .4);
-  min-width: 200px;
-  max-width: 300px;
-  pointer-events: none;
-  border: 1px solid rgba(148, 163, 184, .3);
-}
 
-.drag-pop .dp-title {
-  font-weight: 900;
-  font-size: 13px;
-  color: #60a5fa;
-  margin-bottom: 6px
-}
-
-.drag-pop .dp-move {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  border-bottom: 1px solid rgba(148, 163, 184, .2)
-}
-
-.drag-pop .dp-move:last-child {
-  border-bottom: none
-}
-
-.drag-pop .dp-arrow {
-  color: #fbbf24;
-  font-weight: 900
-}
-
-.drag-pop .dp-chip {
-  background: rgba(148, 163, 184, .18);
-  border-radius: 6px;
-  padding: 2px 6px;
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 100px
-}
-
-.drag-pop .dp-chip.main {
-  background: rgba(96, 165, 250, .25);
-  color: #93c5fd
-}
 
 /* v33.0: stock-top mode card fix */
 body.stock-top .stock-item {
@@ -3708,7 +3239,6 @@ body.stock-top .stock-item {
   font-size: 12px;
   text-align: center
 }
-
 
 
 /* Puzzle suggestion detail */
@@ -4122,38 +3652,6 @@ body.stock-top .stock-item {
   border: 2px dashed rgba(255, 255, 255, .5)
 }
 
-.drag-preview.valid-preview {
-  background: rgba(34, 197, 94, .85) !important;
-  border-color: #86efac
-}
-
-.drag-preview.invalid-preview {
-  background: rgba(239, 68, 68, .85) !important;
-  border-color: #fca5a5
-}
-
-.preview-abbr {
-  font-size: 11px;
-  font-weight: 900;
-  color: #fff;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, .3)
-}
-
-.preview-icon {
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1
-}
-
-.preview-icon.ok {
-  color: #fff;
-  text-shadow: 0 0 4px rgba(134, 239, 172, .8)
-}
-
-.preview-icon.ng {
-  color: #fff;
-  text-shadow: 0 0 4px rgba(252, 165, 165, .8)
-}
 
 /* ===== v34.3: Keyboard Help Modal ===== */
 .kb-help-wrap {
@@ -4207,54 +3705,7 @@ body.stock-top .stock-item {
 }
 
 /* ===== v34.4: Suggestion Sort & Filter ===== */
-.sug-controls {
-  display: flex;
-  gap: 12px;
-  padding: 8px 12px;
-  background: #f8fafc;
-  border-radius: 10px;
-  margin: 8px 0;
-  flex-wrap: wrap;
-  border: 1px solid #e2e8f0
-}
 
-.sug-control-group {
-  display: flex;
-  align-items: center;
-  gap: 6px
-}
-
-.sug-control-label {
-  font-size: 11px;
-  color: #64748b;
-  font-weight: 700;
-  white-space: nowrap
-}
-
-.sug-sort-select,
-.sug-filter-select {
-  padding: 5px 8px;
-  border-radius: 6px;
-  border: 1.5px solid #cbd5e1;
-  background: #fff;
-  font-size: 11px;
-  font-weight: 700;
-  color: #334155;
-  cursor: pointer;
-  transition: all .15s
-}
-
-.sug-sort-select:hover,
-.sug-filter-select:hover {
-  border-color: #94a3b8;
-  background: #f8fafc
-}
-
-.sug-sort-select:focus,
-.sug-filter-select:focus {
-  outline: 2px solid #3b82f6;
-  outline-offset: 1px
-}
 
 /* ===== v34.4: Toast Notifications ===== */
 #toast-container {
@@ -4695,9 +4146,6 @@ td.cell-suggest-to {
 }
 
 /* ミニ時間割常時表示（details廃止） */
-.sug-mini-tt-always {
-  margin-top: 6px
-}
 
 /* 印刷パターン: 縞模様 */
 .print-area.pattern-stripe table.t2 tbody tr:nth-child(odd) td {
@@ -4753,21 +4201,7 @@ td.cell-suggest-to {
 }
 
 /* ピン留め済み提案カード */
-.sug-item.pinned-item {
-  border-color: #f59e0b;
-  background: #fffbeb !important;
-  box-shadow: 0 2px 8px rgba(245, 158, 11, .18);
-}
 
-.sug-item.pinned-item::before {
-  content: "📌 ピン留め";
-  display: block;
-  font-size: 10px;
-  font-weight: 800;
-  color: #d97706;
-  margin-bottom: 4px;
-  letter-spacing: .5px;
-}
 
 .sug-pin-btn {
   background: transparent;
@@ -5208,20 +4642,12 @@ td.heat-3[style*="--heat-intensity: 3"] {
 }
 
 .smg-from,
-.smg-to,
-.smg-displaced-cell {
+.smg-to{
   line-height: 1.1;
   text-align: center;
   vertical-align: middle
 }
 
-.smg-arrows {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
-  padding: 2px 4px
-}
 
 .smg-arrow-row {
   display: flex;
@@ -5247,10 +4673,6 @@ td.heat-3[style*="--heat-intensity: 3"] {
   flex-shrink: 0
 }
 
-.smg-ar-displaced {
-  color: #b45309;
-  font-size: 9px
-}
 
 /* ── 列リサイズハンドル (v44) ── */
 .col-resize-handle {
@@ -6127,11 +5549,6 @@ body.stock-top .float-grid {
 
 /* ── v47: 教員休憩コマ (B-1) ── */
 /* mini-cal の tea-break は黄色 */
-.mini-cal td.break-slot {
-  background: #fef9c3 !important;
-  color: #854d0e;
-  border: 1px solid #fde047 !important
-}
 
 /* ── v48: ドラッグプレビュー (1) ── */
 .timetable td.drag-preview-ok,
@@ -6495,9 +5912,6 @@ body.sandbox-active .app-header {
 }
 
 /* A-1: 即配置フィードバック */
-.stock-item.just-placed {
-  animation: placed-flash .6s ease;
-}
 
 @keyframes placed-flash {
   0% {
@@ -6532,48 +5946,7 @@ body.sandbox-active .app-header {
 }
 
 /* ===== v63: イデア風提案UI (マトリクス + 詳細) ===== */
-.idea-sug-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  font-family: sans-serif;
-  background: #f8fafc;
-  border-radius: 12px;
-  overflow: hidden;
-}
 
-.idea-sug-main {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  border-bottom: 1px solid #e2e8f0;
-}
-
-.idea-sug-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  padding: 12px;
-  overflow-y: auto;
-  background: #fff;
-}
-
-.idea-sug-head-title {
-  margin-bottom: 12px;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.ish-title {
-  font-size: 15px;
-  font-weight: 900;
-  color: #0f172a;
-  flex: 1;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 
 .ish-score {
   color: #ef4444;
@@ -6591,25 +5964,6 @@ body.sandbox-active .app-header {
   gap: 8px;
 }
 
-.idea-sug-side {
-  width: 160px;
-  background: #f1f5f9;
-  border-left: 1px solid #e2e8f0;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.idea-nav-status {
-  text-align: center;
-  font-size: 16px;
-  font-weight: 900;
-  color: #334155;
-  margin-bottom: 8px;
-  letter-spacing: 1px;
-}
 
 /* ── マトリクスUI ── */
 .idea-matrix-wrap {
@@ -6752,14 +6106,6 @@ body.sandbox-active .app-header {
   background: #fee2e2;
 }
 
-.idea-sug-bottom {
-  height: 160px;
-  background: #fff;
-  display: flex;
-  flex-direction: column;
-  padding: 8px 12px;
-  flex-shrink: 0;
-}
 
 .idea-sug-moves-list {
   flex: 1;
@@ -6830,11 +6176,6 @@ body.sandbox-active .app-header {
   flex-shrink: 0;
 }
 
-.idea-sug-desc {
-  font-size: 12px;
-  font-weight: 700;
-  color: #334155;
-}
 
 .idea-sug-reason {
   font-size: 11px;
@@ -6842,13 +6183,6 @@ body.sandbox-active .app-header {
   margin-top: 4px;
 }
 
-.idea-sug-list-wrap {
-  padding: 0 !important;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden !important;
-}
 
 /* v63.2: detail panel */
 .idea-detail-panel {
@@ -7280,13 +6614,6 @@ td.slot-ng {
 .tr-saved-row button { font-size: 11px; padding: 3px 10px; }
 
 /* 同時展開（相乗り）マーカー */
-.badge-simul {
-  display: inline-block;
-  font-size: 8px; font-weight: 900;
-  background: rgba(124, 58, 237, .85); color: #fff;
-  border-radius: 3px; padding: 0 3px; margin-left: 2px;
-  vertical-align: top; line-height: 1.5;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    v62 読みやすさ改善（コマ幅確保・切れ防止・バッジの角配置）
@@ -7344,9 +6671,7 @@ td.slot-ng {
 
 /* 【3】バッジ類（2連・同・⚠・⤵）は文字の横に並べず、右上角の小さな印にする */
 .timetable .lesson .badge2,
-.timetable .lesson .badge-simul,
-.timetable .lesson .vio-badge,
-.timetable .lesson .cont-mark {
+.timetable .lesson .vio-badge{
   position: absolute;
   top: 1px;
   right: 1px;
@@ -7362,19 +6687,10 @@ td.slot-ng {
 .timetable .lesson .badge2 {
   display: none
 }
-.timetable .lesson .badge-simul {
-  top: auto;
-  bottom: 1px
-}
 .timetable .lesson .vio-badge {
   padding: 0 1px;
   background: #dc2626;
   box-shadow: 0 0 0 1px #fff
-}
-.timetable .lesson .cont-mark {
-  background: rgba(255, 255, 255, .8);
-  color: #475569;
-  opacity: 1
 }
 /* 違反コマは内側の赤枠だけ（文字は隠さない） */
 .timetable .lesson.violate {
@@ -7444,8 +6760,7 @@ td.slot-ng {
 }
 
 /* 【3】⚠と⤵は文字の少ない右下角へ。違反コマは2行目の右端だけ空けて、文字に重ならないようにする */
-.timetable .lesson .vio-badge,
-.timetable .lesson .cont-mark {
+.timetable .lesson .vio-badge{
   top: auto;
   bottom: 1px
 }
@@ -7564,12 +6879,12 @@ body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
 .lchip.c-gou  { background: #0e7490; }   /* 合同 */
 .lchip.c-simul{ background: #7c3aed; }   /* 同時展開 */
 .lchip.c-par  { background: #c2410c; }   /* 並列 */
-.lchip.c-tea  { background: #475569; }   /* 複数教員 */
+   /* 複数教員 */
 .lchip.c-span { background: #0f766e; }   /* 連続数 */
 .lchip.c-vio  { background: #dc2626; }   /* 違反 */
 .grid-wrapper[data-dl="0"] .lchip, .grid-wrapper[data-dl="1"] .lchip { font-size: 7px; min-width: 8px; height: 8px; line-height: 8px; padding: 0 1px; }
 /* 旧インラインバッジは使わない（チップに統合） */
-.lesson .l1 .badge2, .lesson .l1 .badge-simul, .lesson .l1 .vio-badge { display: none; }
+.lesson .l1 .badge2, .lesson .l1 .vio-badge { display: none; }
 /* チップ分だけ1行目の右側をあける */
 .lesson .l1 { padding-right: 2px; }
 
@@ -7603,7 +6918,7 @@ body[data-tab]:not([data-tab="edit"]) #quick-action-bar {
 .lesson .l2 .teacher { font-size: calc(var(--meta) + var(--metaAdj) - .5px); opacity: .85; }
 
 /* 【UI】コマ上のマーク類は文字を見えにくくするため表示しない（種別はホバー説明・選択時の紫枠で示す） */
-.lesson .lchips, .lesson .cont-mark, .lesson .badge2, .lesson .badge-simul, .lesson .vio-badge { display: none !important; }
+.lesson .lchips, .lesson .badge2, .lesson .vio-badge { display: none !important; }
 
 /* 【UI修正】「⚙ その他」パネルが画面右端からはみ出して一部ボタンが押せなかった問題 */
 .toolbar-more-panel { max-width: min(640px, calc(100vw - 24px)) !important; min-width: min(520px, calc(100vw - 24px)) !important; }
