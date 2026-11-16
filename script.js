@@ -513,23 +513,55 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const f = n => { const k = (n + h / 30) % 12; const c = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1); return Math.round(255 * c).toString(16).padStart(2, '0'); };
     return '#' + f(0) + f(8) + f(4);
   }
+  /* 教科グループ別の色系統（同じ教科は近い色、教科どうしは離れた色）
+     学校で慣れた配色（国語=赤、数学=青、理科=緑…）に寄せる */
+  const SUBJ_FAMILIES = [
+    { g: 'kokugo', h: 352, s: 78, l: 50, re: /国語|現代の国|言語文化|論理国|文学国|古典|古文|漢文|現国|言文|^文[\/／]|^古総|国表/ },
+    { g: 'chireki', h: 26, s: 85, l: 46, re: /地理|歴史|日本史|世界史|地歴|^日世|^世地|^日[物化生]|社会/ },
+    { g: 'koumin', h: 44, s: 85, l: 40, re: /公民|公共|倫理|政治|政経|現社/ },
+    { g: 'sugaku', h: 218, s: 82, l: 50, re: /数学|^数|言語数/ },
+    { g: 'rika', h: 142, s: 62, l: 38, re: /理科|^理$|物理|化学|生物|地学|^物|^化|^生/ },
+    { g: 'eigo', h: 272, s: 60, l: 52, re: /英語|外国語|^英|コミュ|論理・表現|論表/ },
+    { g: 'taiiku', h: 190, s: 85, l: 38, re: /保健|体育|^保体/ },
+    { g: 'geijutsu', h: 322, s: 70, l: 50, re: /芸術|音楽|美術|書道|工芸|^音|^美|^書|クラフト|器楽/ },
+    { g: 'katei', h: 66, s: 75, l: 34, re: /家庭|家基|家総|フード|保育|服飾|^家/ },
+    { g: 'joho', h: 236, s: 30, l: 46, re: /情報|^情/ },
+    { g: 'tokkatsu', h: 210, s: 12, l: 50, re: /LHR|ＬＨＲ|HR|総合|探究の時間|総探|行事|クラブ|参観|自由選択|^選択$/ },
+    { g: 'kaigi', h: 30, s: 8, l: 44, re: /会議|研修|企画|G$|委員/ },
+  ];
+  function subjFamily(key) {
+    const sc = state?.subjectCfg?.[key] || {};
+    const dept = String(sc.dept || '');
+    const name = String(key || '');
+    // 「自選物理基礎」「自選(月)英語…」などは中身の教科で判定
+    const core = name.replace(/^自選(\([^)]*\))?/, '');
+    for (const f of SUBJ_FAMILIES) if (f.g !== 'tokkatsu' && f.g !== 'kaigi' && dept && f.re.test(dept)) return f;
+    for (const f of SUBJ_FAMILIES) if (core && f.re.test(core)) return f;
+    for (const f of SUBJ_FAMILIES) if (f.re.test(name)) return f;
+    return null;
+  }
+  let _famIdxCache = null, _famIdxSig = '';
+  function familyMemberIndex(fam, key) {
+    const keys = Object.keys(state?.subjectCfg || {});
+    const sig = keys.length + ':' + keys.slice(0, 3).join('|');
+    if (!_famIdxCache || _famIdxSig !== sig) {
+      _famIdxCache = {}; _famIdxSig = sig;
+      for (const k of keys) { const f = subjFamily(k); if (f) (_famIdxCache[f.g] ||= []).push(k); }
+    }
+    const list = _famIdxCache[fam.g] || [key];
+    const i = list.indexOf(key);
+    return { i: i < 0 ? hashStr(key) % Math.max(1, list.length) : i, n: Math.max(1, list.length) };
+  }
   function pickColor(key) {
     try {
-      const sc = state?.subjectCfg?.[key];
-      const dept = sc?.dept || '';
-      if (dept) {
-        const base = deptBaseColor(dept);
-        if (base) {
-          const off = hashStr('suboff:' + key) % 9;
-          const hShift = (off % 9 - 4) * 14;       // ±56° hue shift
-          const sShift = ((off % 3) - 1) * 4;      // ±4% saturation (keep vivid)
-          const lShift = ((off >> 1) % 3 - 1) * 7; // ±7% lightness
-          return hslToHex(
-            (base.h + hShift + 360) % 360,
-            clamp(base.s + sShift, 78, 100),
-            clamp(base.l + lShift, 36, 62)
-          );
-        }
+      const fam = subjFamily(key);
+      if (fam) {
+        // 同じ教科グループ内は色相±16°・明度±8%で散らす（系統を保ったまま見分けられる程度）
+        const { i, n } = familyMemberIndex(fam, key);
+        const t = n <= 1 ? 0.5 : i / (n - 1);
+        const hShift = Math.round((t - 0.5) * 32);
+        const lShift = ((i % 3) - 1) * 8;
+        return hslToHex((fam.h + hShift + 360) % 360, fam.s, Math.max(28, Math.min(60, fam.l + lShift)));
       }
     } catch (e) { }
     // fallback: hash to palette
@@ -552,6 +584,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const pb = Math.round(255 - (255 - b) * mix);
       return `rgb(${pr},${pg},${pb})`;
     } catch (e) { return '#f1f5f9'; }
+  }
+  // コマの背景：単独コマ＝無地、他クラス展開（合同・選択・並列・同時展開）＝斜めストライプ
+  function isMultiClassLesson(it) {
+    return !!(it && (((it.cls || []).length > 1) || it.parallel || it.simul));
+  }
+  function applyLessonBg(el, it, color) {
+    const base = paleColor(color, 0.2);
+    if (state.ui?.colorMode !== 'type' && isMultiClassLesson(it)) {
+      const stripe = paleColor(color, 0.34);
+      el.style.background = `repeating-linear-gradient(135deg, ${base} 0 6px, ${stripe} 6px 9px)`;
+      el.classList.add('multi-cls');
+    } else {
+      el.style.background = base;
+    }
   }
 
   /* ── v45.2: colorMode='type' 用のコマ色取得（2色モード）
@@ -5840,7 +5886,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const contLabel = (mode === 'teacher' || mode === 'room') ? compactClsLabel(it.cls) : (abbr || '');
       const contHtml = escapeHtml(contLabel);
       // 【B-3/B-4】2連の2コマ目も淡背景＋色帯にし、科目名を表示（従来は「↓」だけで薄かった）
-      el.style.background = paleColor(color);
+      applyLessonBg(el, it, color);
       el.style.color = '#0f172a';
       el.style.borderLeft = '4px solid ' + color;
       el.innerHTML = `<div class="l1"><div class="subj">${contHtml}</div></div>`;
@@ -5904,7 +5950,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     try { const sid = state.ui.selectedId; if (sid && sid !== id && linkedGroupIds(sid).has(id)) el.classList.add('linked-hl'); if (sid === id && (linkedGroupIds(id).size > 1 || (it.cls || []).length > 1)) el.classList.add('linked-root'); } catch (e) { }
     // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
     // 【B-3】淡い背景＋濃い文字＋左端の色帯（科目色分けは色帯で維持、文字はコントラスト比4.5以上）
-    el.style.background = paleColor(color);
+    applyLessonBg(el, it, color);
     el.style.color = '#0f172a';
     el.style.borderLeft = '4px solid ' + color;
 
