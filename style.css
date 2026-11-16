@@ -7116,3 +7116,6 @@ body.hl-on .timetable .lesson.hl-linked, body.hl-on .timetable .lesson.hl-tea, b
 .atw-hl-on .atw-card.atw-hl-tea { outline: 3px solid #9a3412; outline-offset: -2px; box-shadow: 0 0 0 1px #fff, 0 0 8px 2px rgba(234,88,12,.75); position: relative; z-index: 2; filter: saturate(1.5) contrast(1.15); }
 .atw-hl-on .atw-card.atw-hl-cls { outline: 3px solid #1e3a8a; outline-offset: -2px; box-shadow: 0 0 0 1px #fff, 0 0 8px 2px rgba(37,99,235,.75); position: relative; z-index: 2; filter: saturate(1.5) contrast(1.15); }
 .atw-count { white-space: nowrap; }
+
+/* 他クラス展開のコマ（合同・選択・並列・同時展開）：左端を二重線にして単独コマと区別 */
+.timetable .lesson.multi-cls { border-left-style: double !important; border-left-width: 6px !important; }
