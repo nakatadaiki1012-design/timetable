@@ -7119,3 +7119,9 @@ body.hl-on .timetable .lesson.hl-linked, body.hl-on .timetable .lesson.hl-tea, b
 
 /* 他クラス展開のコマ（合同・選択・並列・同時展開）：左端を二重線にして単独コマと区別 */
 .timetable .lesson.multi-cls { border-left-style: double !important; border-left-width: 6px !important; }
+
+/* スマホ：時間割の枠を画面の残り高さに収め、枠の中で上下左右にスクロールできるようにする
+   （以前は枠が中身の高さまで伸び、外側で切り取られて下の行に行けなかった） */
+body.mobile .edit-layout { display: flex !important; flex-direction: column; }
+body.mobile .edit-layout > .panel.grid { flex: 1 1 auto; min-height: 0; }
+body.mobile .grid-wrapper { flex: 1 1 auto; min-height: 0; overflow: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
