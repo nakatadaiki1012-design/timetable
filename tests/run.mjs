@@ -96,9 +96,12 @@ await test('保存データが壊れても1つ前の控えから復旧する', a
   const pg = await openApp();
   const before = await counts(pg);
   await pg.evaluate(() => { state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); });
-  // 再読込の直前に自動保存が走ると壊したデータが正常なデータで上書きされ、試験にならないので「未保存なし」にしておく
-  await pg.evaluate(() => { state.autosave.dirty = false; localStorage.setItem('ultimate_tt_state_v271', '{"broken'); });
-  await pg.reload(); await pg.waitForTimeout(800);
+  // 壊す操作と再読込を間を空けずに行う（間が空くと自動保存が動いて、壊したデータが正常なデータで上書きされ、試験にならない）
+  await Promise.all([
+    pg.waitForNavigation({ waitUntil: 'load' }),
+    pg.evaluate(() => { state.autosave.dirty = false; localStorage.setItem('ultimate_tt_state_v271', '{"broken'); location.reload(); }),
+  ]);
+  await pg.waitForTimeout(800);
   const after = await counts(pg);
   assert(after.items === before.items && after.placed === before.placed, `復旧できない ${JSON.stringify(after)}`);
   const kept = await pg.evaluate(() => Object.keys(localStorage).some(k => k.includes('__damaged_')));
@@ -207,6 +210,40 @@ await test('提案（収まり探索）: 出した案はすべて重複なし・
   assert(r.multi > 0, '3コマ以上を動かす案が1つも出ない（深く読めていない）');
   assert(r.bad === 0, `問題のある案が${r.bad}件`);
   assert(r.unchanged, '探索しただけで時間割が変わってしまった');
+  await pg.close2();
+});
+
+await test('埋まっているマスへ動かすと「全員が収まる形」を選べ、採用しても重複なし・元に戻せる', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(500);
+  await pg.click('input[name=viewmode][value=class]'); await pg.waitForTimeout(400);
+  const snap = () => pg.evaluate(() => { let placed = 0, hard = 0; for (const id in state.items) { const p = state.placements[id]; if (p && p.day) { placed++; hard += validatePlacement(id, p.day, p.period, 'safe', null).blocks.length; } } return { placed, hard, sig: JSON.stringify(state.placements) }; });
+  const before = await snap();
+  // 1クラスだけのコマと、収まる形が見つかる「埋まっているマス」を探す
+  const pick = await pg.evaluate(() => {
+    for (const id of Object.keys(state.items).sort()) {
+      const it = state.items[id], plc = state.placements[id];
+      if (!plc || !plc.day || plc.locked || it.cls.length !== 1 || (it.span || 1) !== 1) continue;
+      const sg = fitSuggestions(id, 300).find(s => s.moves.length >= 2);
+      if (sg) { const m = sg.moves.find(m => m.id === id); return { id, cls: it.cls[0], day: m.day, p: m.period }; }
+    }
+    return null;
+  });
+  assert(pick, '試せるコマが見つからない');
+  await pg.locator(`.timetable .lesson[data-id="${pick.id}"]`).first().click(); await pg.waitForTimeout(200);
+  await pg.evaluate((k) => { const td = [...document.querySelectorAll('.timetable td')].find(td => td.dataset.day === k.day && td.dataset.p === String(k.p) && td.closest('tr').querySelector('th')?.textContent.trim() === k.cls); td.click(); }, pick);
+  await pg.waitForFunction(() => document.getElementById('modal').classList.contains('show'), null, { timeout: 8000 });
+  const order = await pg.evaluate(() => document.getElementById('modal-msg').innerText);
+  assert(/全員が収まる形で入れる/.test(order), '「全員が収まる形」の選択肢が出ない');
+  assert(order.indexOf('全員が収まる形') < order.indexOf('強制配置'), '強制配置がおすすめより上にある');
+  await pg.getByText('全員が収まる形で入れる').click(); await pg.waitForTimeout(600);
+  const after = await snap();
+  const now = await pg.evaluate(id => state.placements[id], pick.id);
+  assert(now.day === pick.day && now.period === pick.p, '目的のマスに入っていない');
+  assert(after.placed === before.placed && after.hard === 0, '重複が出た/在庫に出たコマがある: ' + JSON.stringify({ placed: after.placed, hard: after.hard }));
+  await pg.keyboard.press('Control+z'); await pg.waitForTimeout(500);
+  assert((await snap()).sig === before.sig, '元に戻すで元の配置に戻らない');
+  assert(!pg.errs.length, pg.errs.join(' | '));
   await pg.close2();
 });
 

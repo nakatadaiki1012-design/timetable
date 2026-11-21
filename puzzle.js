@@ -756,6 +756,7 @@ function fitJob(id, opts = {}) {
     const al = new Set(fitAllowed(M, t)), tmp = [];
     for (let s = 0; s < M.nS; s++) {
       if (s === M.pos[t] || !al.has(s)) continue;
+      if (opts.onlySlot && !(M.slots[s].day === opts.onlySlot.day && M.slots[s].p === opts.onlySlot.period)) continue; // 1マスだけを集中的に読む
       fitConflicts(M, t, s, tmp);
       if (tmp.some(k => M.locked[k])) continue; // ロックされたコマとぶつかるマスは入れない
       const c = { s, day: M.slots[s].day, p: M.slots[s].p, L: 1 + tmp.length, best: null, bestL: 0, done: false, sweep: 0, cappedL: 0, tried: new Set() };
