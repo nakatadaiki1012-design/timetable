@@ -247,6 +247,37 @@ await test('埋まっているマスへ動かすと「全員が収まる形」�
   await pg.close2();
 });
 
+await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白紙ページができない', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-print').click()); await pg.waitForTimeout(500);
+  const cases = [
+    { type: 'sheet-class', orient: 'landscape', perPage: 1 },
+    { type: 'sheet-class', orient: 'portrait', perPage: 2 },
+    { type: 'sheet-teacher', orient: 'landscape', perPage: 4, color: 'mono', name: 'abbr', showRoom: true },
+  ];
+  for (const c of cases) {
+    await pg.evaluate((c) => { document.getElementById('print-page-orient').value = c.orient; Object.assign(state.settings.sheet ||= {}, c); }, c);
+    await pg.selectOption('#print-type', c.type); await pg.waitForTimeout(400);
+    const r = await pg.evaluate(() => {
+      const pages = [...document.querySelectorAll('.ks-page')];
+      const sheets = [...document.querySelectorAll('.ks-sheet')];
+      const spill = sheets.filter(s => { const b = s.getBoundingClientRect(); return [...s.querySelectorAll('.ks-table, .ks-foot')].some(e => e.getBoundingClientRect().bottom > b.bottom + 1); }).length;
+      const cut = [...document.querySelectorAll('.ks-main')].filter(e => e.scrollWidth > e.clientWidth + 2).length;
+      return { pages: pages.length, sheets: sheets.length, spill, cut };
+    });
+    assert(r.pages > 0 && r.sheets > 0, '時間割表が1枚もできない: ' + JSON.stringify(c));
+    assert(r.spill === 0, `${c.type} で表が紙からはみ出す: ` + JSON.stringify(r));
+    // PDFにして、ページ数が表のページ数と同じ（白紙ページができない）ことを確かめる
+    await pg.emulateMedia({ media: 'print' });
+    const pdf = await pg.pdf({ preferCSSPageSize: true, printBackground: true });
+    await pg.emulateMedia({ media: 'screen' });
+    const n = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    assert(n === r.pages, `${c.type} 印刷のページ数が合わない（白紙ができている）: PDF ${n}ページ / 表 ${r.pages}ページ`);
+  }
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
 await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {
   const pg = await openApp();
   await pg.click('#tab-edit'); await pg.waitForTimeout(300);

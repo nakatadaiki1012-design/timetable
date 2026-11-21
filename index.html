@@ -729,11 +729,16 @@
     <!-- print -->
     <section class="view" id="view-print" style="display:none;">
       <div class="toolbar no-print">
-        <select id="print-page-orient" class="sel mini">
+        <select id="print-page-orient" class="sel mini keep">
           <option value="landscape">A4 横</option>
           <option value="portrait">A4 縦</option>
         </select>
-        <select id="print-type" class="sel">
+        <select id="print-type" class="sel keep">
+          <optgroup label="すぐ使える時間割表">
+            <option value="sheet-class">★ クラス別（教室掲示用）</option>
+            <option value="sheet-teacher">★ 先生別（配布用）</option>
+          </optgroup>
+          <optgroup label="細かく調整する（従来）">
           <option value="class">全クラス</option>
           <option value="teacher">全教員</option>
           <option value="room">全教室</option>
@@ -742,9 +747,10 @@
           <option value="matrix-teacher">教員マトリクス</option>
           <option value="matrix-class">クラスマトリクス</option>
           <option value="matrix-room">教室マトリクス</option>
+          </optgroup>
         </select>
-        <button id="btn-print" class="btn primary">印刷 / PDF</button>
-        <button id="btn-pdf-export" class="btn secondary" title="print-areaをPDFとして直接保存（html2canvas + jsPDF）">📄
+        <button id="btn-print" class="btn primary keep">印刷 / PDF</button>
+        <button id="btn-pdf-export" class="btn secondary keep" title="print-areaをPDFとして直接保存（html2canvas + jsPDF）">📄
           PDF保存</button>
         <button id="btn-print-overview" class="btn secondary" title="全ページを縮小サムネイルで一覧表示（印刷前の確認用）">🔍 全体プレビュー</button>
         <label class="chk"><input id="print-show-tea" type="checkbox" checked>教員</label>
@@ -819,6 +825,29 @@
         <button id="btn-export-teacher-sheets-xlsx" class="btn secondary" style="background:#1d6f42;color:#fff;border:none">📊 教員別シート</button>
       </div>
 
+      <div id="sheet-opts" class="sheet-opts no-print">
+        <label class="so-f"><span>印刷するもの</span><select id="sheet-only" class="sel mini"></select></label>
+        <span class="so-f"><span>1ページに</span>
+          <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="1">1枚</label>
+          <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="2">2枚</label>
+          <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="4">4枚</label></span>
+        <span class="so-f"><span>色</span>
+          <label class="so-r"><input type="radio" name="so-color" data-sk="color" value="color">カラー</label>
+          <label class="so-r"><input type="radio" name="so-color" data-sk="color" value="mono">白黒</label></span>
+        <span class="so-f"><span>科目名</span>
+          <label class="so-r"><input type="radio" name="so-name" data-sk="name" value="full">正式名</label>
+          <label class="so-r"><input type="radio" name="so-name" data-sk="name" value="abbr">略称</label></span>
+        <span class="so-f"><span>表示</span>
+          <label class="so-r"><input type="checkbox" data-sk="showTea">先生</label>
+          <label class="so-r"><input type="checkbox" data-sk="showRoom">教室</label>
+          <label class="so-r"><input type="checkbox" data-sk="showLunch">昼休み</label></span>
+        <span class="so-f"><span>線</span>
+          <select class="sel mini" data-sk="grid"><option value="bold">はっきり</option><option value="thin">細め</option></select></span>
+        <label class="so-f"><span>学校名</span><input type="text" data-sk="title" placeholder="（学校設定の名前）" style="width:150px"></label>
+        <label class="so-f"><span>年度・学期</span><input type="text" data-sk="term" placeholder="例: 2026年度 3学期〜" style="width:150px"></label>
+        <label class="so-f"><span>下の注記</span><input type="text" data-sk="footer" placeholder="例: 1月8日から適用" style="width:150px"></label>
+        <span id="sheet-count" class="muted small"></span>
+      </div>
       <div class="print-layout no-print">
         <div class="row wrap gap">
           <span class="muted small">1行目</span>
