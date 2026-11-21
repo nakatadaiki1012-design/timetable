@@ -1340,7 +1340,7 @@
   function showVersionInfo() {
     const html = `
     <div style="padding:8px;max-height:70vh;overflow-y:auto">
-      <h2 style="font-size:18px;font-weight:900;margin-bottom:8px;color:#0f172a">📦 時間割作成アプリ v49.0</h2>
+      <h2 style="font-size:18px;font-weight:900;margin-bottom:8px;color:#0f172a">📦 駒入盤（こまいればん）— 時間割作成アプリ</h2>
       <div style="font-size:12px;color:#64748b;margin-bottom:16px">最終更新: 2026年2月20日</div>
       
       <h3 style="font-size:14px;font-weight:900;margin:12px 0 6px;color:#0f172a">🚀 v49.0 新機能・修正</h3>
