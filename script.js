@@ -516,18 +516,18 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   /* 教科グループ別の色系統（同じ教科は近い色、教科どうしは離れた色）
      学校で慣れた配色（国語=赤、数学=青、理科=緑…）に寄せる */
   const SUBJ_FAMILIES = [
-    { g: 'kokugo', h: 352, s: 78, l: 50, re: /国語|現代の国|言語文化|論理国|文学国|古典|古文|漢文|現国|言文|^文[\/／]|^古総|国表/ },
-    { g: 'chireki', h: 26, s: 85, l: 46, re: /地理|歴史|日本史|世界史|地歴|^日世|^世地|^日[物化生]|社会/ },
-    { g: 'koumin', h: 44, s: 85, l: 40, re: /公民|公共|倫理|政治|政経|現社/ },
-    { g: 'sugaku', h: 218, s: 82, l: 50, re: /数学|^数|言語数/ },
-    { g: 'rika', h: 142, s: 62, l: 38, re: /理科|^理$|物理|化学|生物|地学|^物|^化|^生/ },
-    { g: 'eigo', h: 272, s: 60, l: 52, re: /英語|外国語|^英|コミュ|論理・表現|論表/ },
-    { g: 'taiiku', h: 190, s: 85, l: 38, re: /保健|体育|^保体/ },
-    { g: 'geijutsu', h: 322, s: 70, l: 50, re: /芸術|音楽|美術|書道|工芸|^音|^美|^書|クラフト|器楽/ },
-    { g: 'katei', h: 66, s: 75, l: 34, re: /家庭|家基|家総|フード|保育|服飾|^家/ },
-    { g: 'joho', h: 236, s: 30, l: 46, re: /情報|^情/ },
-    { g: 'tokkatsu', h: 210, s: 12, l: 50, re: /LHR|ＬＨＲ|HR|総合|探究の時間|総探|行事|クラブ|参観|自由選択|^選択$/ },
-    { g: 'kaigi', h: 30, s: 8, l: 44, re: /会議|研修|企画|G$|委員/ },
+    { g: 'kokugo', name: '国語', h: 352, s: 78, l: 50, re: /国語|現代の国|言語文化|論理国|文学国|古典|古文|漢文|現国|言文|^文[\/／]|^古総|国表/ },
+    { g: 'chireki', name: '地理歴史', h: 26, s: 85, l: 46, re: /地理|歴史|日本史|世界史|地歴|^日世|^世地|^日[物化生]|社会/ },
+    { g: 'koumin', name: '公民', h: 44, s: 85, l: 40, re: /公民|公共|倫理|政治|政経|現社/ },
+    { g: 'sugaku', name: '数学', h: 218, s: 82, l: 50, re: /数学|^数|言語数/ },
+    { g: 'rika', name: '理科', h: 142, s: 62, l: 38, re: /理科|^理$|物理|化学|生物|地学|^(物|化|生)(基|$)/ },
+    { g: 'eigo', name: '英語', h: 272, s: 60, l: 52, re: /英語|外国語|^英|コミュ|論理・表現|論表/ },
+    { g: 'taiiku', name: '保健体育', h: 190, s: 85, l: 38, re: /保健|体育|^保体/ },
+    { g: 'geijutsu', name: '芸術', h: 322, s: 70, l: 50, re: /芸術|音楽|美術|書道|工芸|^音|^美|^書|クラフト|器楽/ },
+    { g: 'katei', name: '家庭', h: 66, s: 75, l: 34, re: /家庭|家基|家総|フード|保育|服飾|^家/ },
+    { g: 'joho', name: '情報', h: 236, s: 30, l: 46, re: /情報|^情/ },
+    { g: 'tokkatsu', name: '総探・LHR・行事など', h: 210, s: 12, l: 50, re: /LHR|ＬＨＲ|HR|総合|探究の時間|総探|行事|クラブ|参観|自由選択|^選択$/ },
+    { g: 'kaigi', name: '会議・研修など', h: 30, s: 8, l: 44, re: /会議|研修|企画|G$|委員/ },
   ];
   function subjFamily(key) {
     const sc = state?.subjectCfg?.[key] || {};
@@ -551,6 +551,30 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const list = _famIdxCache[fam.g] || [key];
     const i = list.indexOf(key);
     return { i: i < 0 ? hashStr(key) % Math.max(1, list.length) : i, n: Math.max(1, list.length) };
+  }
+  // 色の見本：どの色がどの教科か、しま模様が何を表すかを一覧で見せる
+  function showColorLegend() {
+    const groups = new Map();
+    const used = new Set(Object.values(state.items).map(it => it.subjKey));
+    for (const k of Object.keys(state.subjectCfg || {})) {
+      if (!used.has(k)) continue;
+      const f = subjFamily(k);
+      const name = f ? f.name : 'その他';
+      if (!groups.has(name)) groups.set(name, { order: f ? SUBJ_FAMILIES.indexOf(f) : 99, items: [] });
+      const sc = state.subjectCfg[k] || {};
+      groups.get(name).items.push({ label: sc.abbr || k, color: sc.color || pickColor(k) });
+    }
+    const chip = (label, color, stripe) => `<span style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;border-radius:6px;border-left:${stripe ? '6px double' : '4px solid'} ${color};font-weight:800;font-size:12px;color:#0f172a;background:${stripe ? `repeating-linear-gradient(135deg, ${paleColor(color, 0.2)} 0 6px, ${paleColor(color, 0.34)} 6px 9px)` : paleColor(color, 0.2)}">${escapeHtml(label)}</span>`;
+    const rows = [...groups.entries()].sort((a, b) => a[1].order - b[1].order).map(([name, g]) =>
+      `<tr><th style="text-align:left;white-space:nowrap;padding:4px 10px 4px 0;vertical-align:top;font-size:13px">${escapeHtml(name)}</th><td style="padding:2px 0">${g.items.slice(0, 14).map(x => chip(x.label, x.color)).join('')}${g.items.length > 14 ? `<span style="color:#64748b;font-size:11px">ほか${g.items.length - 14}科目</span>` : ''}</td></tr>`).join('');
+    const html = `<div style="max-height:60vh;overflow:auto;text-align:left">
+      <div style="margin-bottom:10px;padding:8px 10px;background:#f8fafc;border-radius:8px;font-size:13px;line-height:1.9">
+        ${chip('無地', '#2563eb')} 1クラスだけの授業<br>
+        ${chip('しま模様', '#2563eb', true)} 他のクラスと一緒の授業（合同・選択・並列・同時展開）
+      </div>
+      <table style="border-collapse:collapse;width:100%">${rows}</table>
+      <div style="margin-top:8px;color:#64748b;font-size:11px">色は「2 科目設定」で科目ごとに変えられます。</div></div>`;
+    showModalHTML('🎨 色の見本', html.replace(/\n\s*/g, ''), null, '閉じる', null);
   }
   function pickColor(key) {
     try {
@@ -8926,6 +8950,19 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         ]);
       }
     }
+    // 4) それでも直らない時は、収まり探索で「他のクラス・先生のコマも含めて数コマ動かす」手を探す
+    //    （押し出されたコマも全員収まり、注意も増えず、連続・偏りが減る手だけを採用）
+    if (!best && typeof fitSuggestions === 'function' && Date.now() < deadline) {
+      try {
+        for (const s of fitSuggestions(id, Math.min(250, deadline - Date.now()), { maxMoves: 6 })) {
+          if (s.newWarns || !(s.deltaCost < -0.5)) continue;
+          if (best && s.deltaCost >= best.delta) continue;
+          const moves = s.moves.map(m => ({ id: m.id, day: m.day, period: m.period, span: m.span || 1 }));
+          if (moves.some(m => state.placements[m.id]?.locked) || !simulateMoves(moves).ok) continue;
+          best = { moves, delta: s.deltaCost };
+        }
+      } catch (e) { console.error('収まり探索(改善):', e); }
+    }
     return best;
   }
 
@@ -16301,10 +16338,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         { label: 'タイプ別色（単独/複数教員/複数クラス/2連）', value: 'type' },
         { label: '学年別色（クラスの先頭数字）', value: 'grade' },
       ];
-      showCtxMenu(modes.map(m => ({
+      // act（項目の名前）が無いと、どれを押しても先頭の項目が実行されてしまう
+      showCtxMenu([...modes.map(m => ({
+        act: 'color-' + m.value,
         label: (m.value === cur ? '✓ ' : '　') + m.label,
         on: () => { state.ui.colorMode = m.value; markDirty('ui'); rerenderAll(); }
-      })), ev.clientX, ev.clientY);
+      })), { sep: true }, { act: 'color-legend', label: '📖 色の見本を見る', on: () => showColorLegend() }], ev.clientX, ev.clientY);
     };
 
     const btnClearSelection = safeGet('#btn-clear-selection');
@@ -17303,7 +17342,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       // 別IIFE（AI提案/問題分析）が素の識別子で参照する第1IIFEヘルパを公開し、
       // グローバル解決で未定義参照クラッシュを防ぐ
       Object.assign(window, {
-        buildIndex, clampInt, deepClone, flash, isSpanFill, staticBlocks,
+        buildIndex, clampInt, deepClone, flash, isSpanFill, staticBlocks, pickColor,
         teacherDailyMax, teacherConsecMax, teacherDayCount,
         chainQualityScore, moveDeltaCost, softPlacementPenalty, clearValidSlots, simulateMoves,
         normalizeAbbr, showModal, showModalHTML,

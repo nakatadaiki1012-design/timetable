@@ -838,7 +838,7 @@ function fitJob(id, opts = {}) {
             nw ? `⚠ 注意が${nw}件増えます: ${[...new Set(c.best.warnTexts)].slice(0, 2).join(' / ')}` : '✓ 重複なし・注意も増えません',
             ...(qNote ? [qNote] : []),
           ],
-          moves, noStock: true, chainDepth: depth, isFit: true, newWarns: nw,
+          moves, noStock: true, chainDepth: depth, isFit: true, newWarns: nw, deltaCost: dq,
         });
       }
       return out;

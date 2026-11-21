@@ -96,7 +96,8 @@ await test('保存データが壊れても1つ前の控えから復旧する', a
   const pg = await openApp();
   const before = await counts(pg);
   await pg.evaluate(() => { state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); });
-  await pg.evaluate(() => localStorage.setItem('ultimate_tt_state_v271', '{"broken'));
+  // 再読込の直前に自動保存が走ると壊したデータが正常なデータで上書きされ、試験にならないので「未保存なし」にしておく
+  await pg.evaluate(() => { state.autosave.dirty = false; localStorage.setItem('ultimate_tt_state_v271', '{"broken'); });
   await pg.reload(); await pg.waitForTimeout(800);
   const after = await counts(pg);
   assert(after.items === before.items && after.placed === before.placed, `復旧できない ${JSON.stringify(after)}`);
@@ -274,6 +275,51 @@ await test('スマホ表示: 曜日切替・在庫の引き出し・長押しの
   assert(!pg.errs.length, pg.errs.join(' | '));
   await pg.close2();
 });
+
+await test('スマホ表示: 時間割を一番下までスクロールでき、見出し2行が上に残る', async () => {
+  const pg = await openApp({ mobile: true });
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(500);
+  await pg.tap('input[name=viewmode][value=teacher]'); await pg.waitForTimeout(500);
+  const r = await pg.evaluate(async () => {
+    const w = document.getElementById('grid-wrapper');
+    const max = w.scrollHeight - w.clientHeight;
+    w.scrollTop = max; await new Promise(r => setTimeout(r, 200));
+    const wr = w.getBoundingClientRect();
+    const heads = [...document.querySelectorAll('.timetable thead tr')].map(tr => { const b = tr.querySelector('th').getBoundingClientRect(); return Math.round(b.top - wr.top); });
+    const lastRow = [...document.querySelectorAll('.timetable tbody tr')].pop().getBoundingClientRect();
+    return { max, top: Math.round(w.scrollTop), heads, lastVisible: lastRow.bottom <= wr.bottom + 12, fits: wr.bottom <= innerHeight + 1 };
+  });
+  assert(r.max > 50, '時間割の枠がスクロールできる高さになっていない: ' + JSON.stringify(r));
+  assert(r.top >= r.max - 2 && r.lastVisible && r.fits, '一番下の行まで行けない: ' + JSON.stringify(r));
+  assert(r.heads.length >= 2 && r.heads.every(t => t >= -3 && t <= 40), '見出しが上に残らない: ' + JSON.stringify(r));
+  await pg.close2();
+});
+
+await test('色分け: 同じ教科は近い色・別の教科は離れた色・色分けメニューが選んだとおりに動く', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(500);
+  const r = await pg.evaluate(() => {
+    for (const k of ['数学Ⅰ', '数学Ａ', '現代の国語', '生徒会G']) state.subjectCfg[k] = { abbr: k };
+    const hue = (hex) => { const n = parseInt(hex.slice(1), 16), R = (n >> 16) / 255, G = ((n >> 8) & 255) / 255, B = (n & 255) / 255; const mx = Math.max(R, G, B), mn = Math.min(R, G, B), d = mx - mn; if (!d) return -1; let h = mx === R ? ((G - B) / d) % 6 : mx === G ? (B - R) / d + 2 : (R - G) / d + 4; return (h * 60 + 360) % 360; };
+    const dist = (a, b) => { const d = Math.abs(a - b); return Math.min(d, 360 - d); };
+    const c = k => hue(pickColor(k));
+    const out = { same: dist(c('数学Ⅰ'), c('数学Ａ')), diff: dist(c('数学Ⅰ'), c('現代の国語')), g: pickColor('生徒会G'), bio: pickColor('生物基礎') };
+    for (const k of ['数学Ⅰ', '数学Ａ', '現代の国語', '生徒会G']) delete state.subjectCfg[k];
+    return out;
+  });
+  assert(r.same <= 40, '同じ教科の色が離れすぎ: ' + JSON.stringify(r));
+  assert(r.diff >= 60, '別の教科の色が近すぎ: ' + JSON.stringify(r));
+  // 色分けメニュー: 「学年別」を選んだら学年別になる（以前はどれを選んでも先頭の項目になっていた）
+  await pg.evaluate(() => { const e = document.getElementById('btn-color-mode'); e.onclick({ clientX: 300, clientY: 200 }); }); await pg.waitForTimeout(200);
+  await pg.getByText('学年別色').click(); await pg.waitForTimeout(300);
+  assert(await pg.evaluate(() => state.ui.colorMode) === 'grade', '色分けメニューで選んだものと違うモードになった');
+  await pg.evaluate(() => { const e = document.getElementById('btn-color-mode'); e.onclick({ clientX: 300, clientY: 200 }); }); await pg.waitForTimeout(200);
+  await pg.getByText('色の見本を見る').click(); await pg.waitForTimeout(300);
+  assert(await pg.evaluate(() => document.getElementById('modal').classList.contains('show') && /しま模様/.test(document.getElementById('modal-msg').textContent)), '色の見本が開かない');
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
 
 await browser.close(); server.close();
 const ng = results.filter(r => !r.ok);

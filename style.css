@@ -7125,3 +7125,9 @@ body.hl-on .timetable .lesson.hl-linked, body.hl-on .timetable .lesson.hl-tea, b
 body.mobile .edit-layout { display: flex !important; flex-direction: column; }
 body.mobile .edit-layout > .panel.grid { flex: 1 1 auto; min-height: 0; }
 body.mobile .grid-wrapper { flex: 1 1 auto; min-height: 0; overflow: auto !important; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+
+/* スマホ：下へスクロールしても、曜日の行と時限（1・2・3…）の行の両方が上に残るようにする。
+   枠の上の余白をなくし、見出しの上からコマがのぞかないようにする */
+body.mobile .grid-wrapper { padding-top: 0 !important; }
+body.mobile .timetable thead tr:nth-child(2) th { position: sticky !important; top: 27px; z-index: 3; }
+body.mobile .timetable thead tr:first-child th { z-index: 4; top: -2px; }
