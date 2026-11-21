@@ -7187,3 +7187,20 @@ body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
   html:has(#view-print.sheet-mode), body:has(#view-print.sheet-mode) { margin: 0 !important; padding: 0 !important; background: #fff !important; }
   body:has(#view-print.sheet-mode) .app-main, body:has(#view-print.sheet-mode) #view-print { margin: 0 !important; padding: 0 !important; background: #fff !important; }
 }
+
+/* 見やすさ: 表の骨組み（曜日・時限）をはっきり、文字は太すぎず */
+.ks-table thead th.ks-day { background: #1e293b; color: #fff; letter-spacing: .3em; text-indent: .3em; }
+.ks-table thead th.ks-corner { background: #1e293b; }
+.ks-table .ks-p { background: #e2e8f0; color: #0f172a; }
+.ks-mono .ks-table thead th.ks-day, .ks-mono .ks-table thead th.ks-corner { background: #111; color: #fff; }
+.ks-mono .ks-table .ks-p { background: #ececec; }
+.ks-main { font-weight: 800; letter-spacing: .02em; line-height: 1.1; }
+.ks-sub { font-weight: 600; color: #475569; letter-spacing: .02em; }
+.ks-mono .ks-sub { color: #333; }
+.ks-is-choice .ks-main { color: #475569; font-weight: 800; letter-spacing: .3em; text-indent: .3em; margin-bottom: 0.3mm; }
+.ks-choice { font-weight: 800; color: #0f172a; line-height: 1.15; }
+/* 昼休みの行: 前後を太線で区切る */
+.ks-lunch td { border-top: 0.6mm solid #1e293b !important; border-bottom: 0.6mm solid #1e293b !important; }
+.ks-head { border-bottom-width: 0.9mm; }
+.ks-table thead th.ks-day, .ks-table thead th.ks-corner { border-left-color: #64748b; border-right-color: #64748b; }
+.ks-mono .ks-table thead th.ks-day, .ks-mono .ks-table thead th.ks-corner { border-left-color: #777; border-right-color: #777; }

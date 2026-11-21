@@ -1194,12 +1194,13 @@
      A4 にぴったり収まる表を、選択肢を数個選ぶだけで作る。
      文字の大きさは紙の大きさとコマ数から自動で決める（科目名が長いマスだけ自動で縮める）。
   ======================= */
-  const SHEET_DEFAULTS = { perPage: 1, color: 'color', name: 'full', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
+  const SHEET_DEFAULTS = { perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
   function sheetOpts() {
     state.settings.sheet = { ...SHEET_DEFAULTS, ...(state.settings.sheet || {}) };
     return state.settings.sheet;
   }
-  const toHalf = (s) => String(s || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+  // 全角英数字は半角に、半角カタカナ（ｺﾐ など）は全角に（印刷で読みやすく）
+  const toHalf = (s) => String(s || '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0)).replace(/[\uFF61-\uFF9F]+/g, k => k.normalize('NFKC'));
   // クラス名を読みやすく（1-1 → 1年1組）
   function sheetClassTitle(key) {
     const m = /^(\d)\s*-\s*(\d+)$/.exec(String(key));
@@ -1213,8 +1214,8 @@
     const abbrOf = (name) => { const c = state.subjectCfg[name]; return (c && c.abbr) ? c.abbr : displayAbbr({ subj: name, subjKey: name }, c); };
     if (parts.length > 1) {
       // 選択（生徒によって受ける科目が違う）
-      const list = parts.map(p => nameMode === 'abbr' ? abbrOf(p) : p);
-      return { main: '選択', sub: list.join('・'), isChoice: true };
+      const list = parts.map(p => nameMode === 'abbr' ? toHalf(abbrOf(p)) : toHalf(p));
+      return { main: '選択', sub: list.join('・'), list, abbrList: parts.map(p => toHalf(abbrOf(p))), isChoice: true };
     }
     const base = parts[0] || it.subj || it.subjKey || '';
     if (nameMode === 'abbr') {
@@ -1224,8 +1225,17 @@
       if ([...a].length > 6) a = displayAbbr({ subj: base, subjKey: base }, null); // 略称が長すぎる時（総合的な探究の時間→総探 など）
       return { main: toHalf(a), sub: '' };
     }
+
     const MAP = { '総合的な探究の時間': '総合的な探究', 'ＬＨＲ': 'LHR', 'ロングホームルーム': 'LHR' };
-    return { main: toHalf(MAP[base] || base), sub: '' };
+    const full = toHalf(MAP[base] || base);
+    if (nameMode === 'auto') {
+      // おまかせ: 正式名が長すぎてマスに1行で入らない時だけ略称にする（後で幅を見て決める）
+      let a = scfg.abbr || '';
+      if (!a || (parts[0] && /\d{2,}$/.test(a))) a = abbrOf(base);
+      if ([...a].length > 6) a = displayAbbr({ subj: base, subjKey: base }, null);
+      return { main: full, alt: toHalf(a), sub: '' };
+    }
+    return { main: full, sub: '' };
   }
   function sheetEsc(s) { return escapeHtml(String(s == null ? '' : s)); }
   // 1枚分の時間割表のHTML。w,h は mm
@@ -1255,9 +1265,11 @@
     const subjFs = Math.max(2.4, Math.min(rowH * 0.34, colW * 0.17, 9));
     const subFs = Math.max(1.9, Math.min(subjFs * 0.52, 4.2));
     const titleFs = Math.min(headH * 0.62, 11);
+    const textLen = (text) => [...String(text)].reduce((a, c) => a + (/[ -~｡-ﾟ]/.test(c) ? 0.55 : 1), 0);
+    const fitsOneLine = (text, fs, widthMm) => textLen(text) * fs <= widthMm * 0.92;
     const fitFs = (text, base, widthMm) => {
       // 長い名前だけ、1〜2行で収まるよう縮める（全角1文字≒文字の大きさ1つ分の幅）
-      const len = [...String(text)].reduce((a, c) => a + (/[ -~｡-ﾟ]/.test(c) ? 0.55 : 1), 0);
+      const len = textLen(text);
       const oneLine = (widthMm * 0.92) / Math.max(1, len);
       if (oneLine >= base) return base;
       // 少し縮めれば1行に収まるなら1行にする（単語の途中で折り返すより読みやすい）
@@ -1275,7 +1287,16 @@
         // クラスの表では「1年体育」の「1年」は言わなくても分かるので省く
         if (kind === 'class' && !sj.isChoice) sj.main = sj.main.replace(/^[1-6１-６]\s*年?\s*(?=[^\d\s・-]{2})/, '');
         const lines = [];
+        const k = many ? 0.62 : 1;
+        const baseFs = subjFs * k * (rowsSpan > 1 ? 1.1 : 1);
+        // おまかせ: 正式名が少し縮めても1行に入らない時は略称にする（2行に折れるより読みやすい）
+        if (sj.alt && sj.alt !== sj.main && !fitsOneLine(sj.main, baseFs * 0.78, colW - 2)) {
+          sj.main = kind === 'class' ? sj.alt.replace(/^[1-6１-６]\s*年?\s*(?=[^\d\s・-]{2})/, '') : sj.alt;
+        }
         let main = sj.main;
+        // 先生が多い授業（体育など）は「西村 ほか3名」とまとめる（4人並べると字が小さくなりすぎる）
+        const teaLabel = (ts) => ts.length > 2 ? `${ts[0]} ほか${ts.length - 1}名` : ts.join('・');
+        let listHtml = '';
         if (kind === 'teacher') {
           // 先生の表: 大きくクラス、小さく科目
           // クラスは省略せずに書く（同じ学年はまとめて 3-3,4,5）
@@ -1285,18 +1306,37 @@
           main = c || sj.main;
           if (c && c !== sj.main) lines.push(sj.main + (sj.sub ? `（${sj.sub}）` : '')); // クラスが無い授業（会議など）は名前を2回書かない
         } else {
-          if (sj.sub) lines.push(sj.sub);
-          if (o.showTea && (it.teas || []).length) lines.push((it.teas || []).join('・'));
+          if (sj.isChoice) {
+            // 選択: 科目を1つずつ行に分けて書く（3つまで。多い時は略称で1行に）
+            const names = (sj.list.length <= 3 && sj.list.every(n => fitsOneLine(n, subFs * k * 1.05, colW - 2))) ? sj.list
+              : [(sj.abbrList || sj.list).join('・')];
+            listHtml = names; // 大きさは下で、マスの高さに入るように決める
+          }
+          if (o.showTea && (it.teas || []).length) lines.push(teaLabel(it.teas || []));
         }
         // 教室: クラスの教室（1-1 など、クラス名と同じもの）は書かなくても分かるので省く
         if (o.showRoom) { const rs = (it.rooms || []).filter(r => r !== key && !(it.cls || []).includes(r)); if (rs.length) lines.push(rs.join('・')); }
-        const k = many ? 0.62 : 1;
-        const fsMain = fitFs(main, subjFs * k * (rowsSpan > 1 ? 1.1 : 1), colW - 2);
-        const fsSub = Math.min(subFs * k, fsMain * 0.8);
-        const subHtml = lines.filter(Boolean).map(l => `<div class="ks-sub" style="font-size:${fitFs(l, fsSub, colW - 2).toFixed(2)}mm">${sheetEsc(l)}</div>`).join('');
+        const choiceView = sj.isChoice && kind === 'class'; // クラスの表の「選択」だけ、見出しを小さくして科目名を並べる
+        let fsMain = choiceView ? Math.min(baseFs * 0.62, subFs * 1.5) : fitFs(main, baseFs, colW - 2);
+        let fsSub = Math.max(Math.min(subFs * k, fsMain * 0.8), 2.1 * k);
+        const choiceNames = Array.isArray(listHtml) ? listHtml : [];
+        const subLines = lines.filter(Boolean);
+        let fsChoice = choiceNames.map(n => fitFs(n, subFs * k * 1.05, colW - 2));
+        let fsLines = subLines.map(l => fitFs(l, fsSub, colW - 2));
+        // マスの高さに入るか確かめ、入らなければ全体を同じ割合で小さくする（行が伸びて表が紙からはみ出さないように）
+        const W = (colW - 2) * 0.92;
+        const nLines = (t, f) => Math.max(1, Math.ceil(textLen(t) * f / W)); // 折り返して何行になるか
+        const needOf = () => fsMain * 1.12 * nLines(main, fsMain) + choiceNames.reduce((a, n, i) => a + fsChoice[i] * 1.2 * nLines(n, fsChoice[i]), 0) + subLines.reduce((a, l, i) => a + fsLines[i] * 1.25 * nLines(l, fsLines[i]), 0) + 1.4;
+        const avail = (rowH * rowsSpan - 0.8) / (many ? ids.length : 1);
+        for (let tries = 0; tries < 6 && needOf() > avail; tries++) {
+          const r = Math.max(0.6, avail / needOf());
+          fsMain *= r; fsChoice = fsChoice.map(f => f * r); fsLines = fsLines.map(f => f * r);
+        }
+        listHtml = choiceNames.map((n, i) => `<div class="ks-choice" style="font-size:${fsChoice[i].toFixed(2)}mm">${sheetEsc(n)}</div>`).join('');
+        const subHtml = subLines.map((l, i) => `<div class="ks-sub" style="font-size:${fsLines[i].toFixed(2)}mm">${sheetEsc(l)}</div>`).join('');
         const col = color ? (state.subjectCfg[it.subjKey]?.color || pickColor(it.subjKey)) : '';
         const st = color ? `style="--ks-c:${col};--ks-bg:${paleColor(col, 0.16)}"` : '';
-        return `<div class="ks-item${many ? ' ks-many' : ''}" ${st}><div class="ks-main" style="font-size:${fsMain.toFixed(2)}mm">${sheetEsc(main)}</div>${subHtml}</div>`;
+        return `<div class="ks-item${many ? ' ks-many' : ''}${choiceView ? ' ks-is-choice' : ''}" ${st}><div class="ks-main" style="font-size:${fsMain.toFixed(2)}mm">${sheetEsc(main)}</div>${listHtml}${subHtml}</div>`;
       }).join('');
     };
     let rows = '';
