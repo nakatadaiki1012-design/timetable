@@ -1,7 +1,7 @@
 {
   "name": "timetable",
   "private": true,
-  "description": "時間割作成アプリ（ブラウザだけで動く静的ページ）。テスト用の設定のみ。",
+  "description": "駒入盤（こまいればん）: 時間割作成アプリ（ブラウザだけで動く静的ページ）。テスト用の設定のみ。",
   "type": "module",
   "scripts": {
     "build": "node tools/build.mjs",
