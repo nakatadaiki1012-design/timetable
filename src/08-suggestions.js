@@ -979,8 +979,6 @@
       <div class="sug-popup-header">
         <div class="sug-popup-title">💡 配置提案: <strong>${escapeHtml(it_name)}</strong></div>
         <span class="sug-popup-hint">↑↓ 移動 · Enter 採用 · Esc 閉じる</span>
-        <button class="sug-popup-deep" id="sug-popup-deep-btn">🧠 深読み:OFF</button>
-        <button class="sug-popup-lns" id="sug-popup-lns-btn">🧩 LNS:OFF</button>
         <button class="sug-popup-close" id="sug-popup-close-btn">✕</button>
       </div>
       <div class="sug-popup-body">
@@ -1187,19 +1185,20 @@
           <div class="idea-detail-panel">
             <div class="idea-detail-header">
               <span class="idea-detail-title">${escapeHtml(selSug.title || '提案')}</span>
-              <span class="ish-score">スコア: ${scoreVal} / ${depth}手</span>
+              <span class="ish-score">${depth <= 1 ? 'このコマだけ動かす' : `${depth}コマを動かす`}</span>
               <span class="idea-detail-nav">${selIdx + 1}/${selSugs.length}件
                 <button class="idea-btn-sm" id="idea-slot-prev" ${selIdx <= 0 ? 'disabled' : ''}>◀</button>
                 <button class="idea-btn-sm" id="idea-slot-next" ${selIdx >= selSugs.length - 1 ? 'disabled' : ''}>▶</button>
               </span>
             </div>
-            ${miniGridsHtml ? `<div class="idea-sug-grids">${miniGridsHtml}</div>` : ''}
-            <div class="idea-sug-moves-list">${movesListHtml || '<div style="padding:8px;color:#94a3b8">移動なし</div>'}</div>
-            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).join(' · '))}</div>` : ''}
+            <!-- 採用ボタンは上に置く（下までスクロールしなくても押せるように） -->
             <div class="idea-detail-actions">
-              <button class="idea-btn" id="idea-btn-reason">詳細</button>
               <button class="idea-btn apply ${isForce ? 'apply-force' : ''}" id="idea-btn-apply">${isForce ? '⚠ 強制採用' : '採 用'}</button>
+              <button class="idea-btn" id="idea-btn-reason">詳細</button>
             </div>
+            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).join(' · '))}</div>` : ''}
+            <div class="idea-sug-moves-list">${movesListHtml || '<div style="padding:8px;color:#94a3b8">移動なし</div>'}</div>
+            ${miniGridsHtml ? `<div class="idea-sug-grids">${miniGridsHtml}</div>` : ''}
           </div>
         `;
       } else if (selKey) {
@@ -2123,7 +2122,10 @@
 
     // v49+: 連動提案（グリッド内・在庫不使用）を主軸に
     // computeLinkedSuggestions は puzSearch ベースでブロッカーの連鎖も解決
-    const linkedRaw = sortByScore(filterSame([...fitRaw, ...safeCompute(() => (deep && typeof computeLinkedSuggestionsDeep === 'function') ? computeLinkedSuggestionsDeep(id) : computeLinkedSuggestions(id), '連動')]));
+    // 従来の「連動」「回転」探索は、収まり探索と同じ形（入替・回転・連鎖）を遅く探すだけなので通常は使わない
+    // （提案を開く時間の半分以上を占めていた）。収まり探索が使えない場合だけ代わりに走らせる。
+    const fitOk = typeof fitSuggestions === 'function';
+    const linkedRaw = sortByScore(filterSame([...fitRaw, ...((fitOk && !deep) ? [] : safeCompute(() => (deep && typeof computeLinkedSuggestionsDeep === 'function') ? computeLinkedSuggestionsDeep(id) : computeLinkedSuggestions(id), '連動'))]));
 
     // 入替: 2コマ入替 + 連動提案の1手分
     const swapRaw = sortByScore(filterSame([
@@ -2131,7 +2133,7 @@
     ]));
 
     // 回転: 3〜4コマの回転（全グリッド内）
-    const cycleRaw = sortByScore(filterSame(safeCompute(() => (deep && typeof computeCycleSuggestionsDeep === 'function') ? computeCycleSuggestionsDeep(id) : computeCycleSuggestions(id), '回転')));
+    const cycleRaw = (fitOk && !deep) ? [] : sortByScore(filterSame(safeCompute(() => (deep && typeof computeCycleSuggestionsDeep === 'function') ? computeCycleSuggestionsDeep(id) : computeCycleSuggestions(id), '回転')));
 
     // パズル: 全体最適・先読み
     const lookaheadRaw = sortByScore(filterSame([
