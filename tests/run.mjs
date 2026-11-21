@@ -254,6 +254,8 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
     { type: 'sheet-class', orient: 'landscape', perPage: 1 },
     { type: 'sheet-class', orient: 'portrait', perPage: 2 },
     { type: 'sheet-teacher', orient: 'landscape', perPage: 4, color: 'mono', name: 'abbr', showRoom: true },
+    { type: 'sheet-all-class', orient: 'landscape', paper: 'A3' },
+    { type: 'sheet-all-teacher', orient: 'landscape', paper: 'A4' },
   ];
   for (const c of cases) {
     await pg.evaluate((c) => { document.getElementById('print-page-orient').value = c.orient; Object.assign(state.settings.sheet ||= {}, c); }, c);

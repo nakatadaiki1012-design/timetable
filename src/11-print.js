@@ -196,9 +196,13 @@
     }
     const type = $('#print-type')?.value || 'class';
     // すぐ使える時間割表（掲示用・配布用）
-    const isSheet = type === 'sheet-class' || type === 'sheet-teacher';
+    const isSheet = /^sheet-/.test(type);
     document.getElementById('view-print')?.classList.toggle('sheet-mode', isSheet);
-    if (isSheet) { bindSheetOpts(); fillSheetOnly(type === 'sheet-teacher' ? 'teacher' : 'class'); renderSheets(area, type); return; }
+    if (isSheet) {
+      bindSheetOpts(); fillSheetOnly(type === 'sheet-teacher' ? 'teacher' : 'class');
+      document.getElementById('view-print')?.classList.toggle('sheet-all', /^sheet-all-/.test(type)); // 一覧表では使わない項目を隠す
+      renderSheets(area, type); return;
+    }
     const layout = readPrintLayout();
     // persist layout to state
     state.ui.printLayout = layout;
@@ -1194,7 +1198,7 @@
      A4 にぴったり収まる表を、選択肢を数個選ぶだけで作る。
      文字の大きさは紙の大きさとコマ数から自動で決める（科目名が長いマスだけ自動で縮める）。
   ======================= */
-  const SHEET_DEFAULTS = { perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
+  const SHEET_DEFAULTS = { paper: 'A4', perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
   function sheetOpts() {
     state.settings.sheet = { ...SHEET_DEFAULTS, ...(state.settings.sheet || {}) };
     return state.settings.sheet;
@@ -1375,11 +1379,124 @@
     </div>`;
   }
   // 全ページのHTML（A4、余白10mm。1ページに1・2・4枚）
+  /* 学校全体の一覧表（全クラス／全教員を1枚に並べる。行が多すぎる時は自動でページを分ける） */
+  function matrixSheetHTML(kind, keys, idx, o, w, h, pageNo, pageCount) {
+    const days = DAYS.filter(d => maxPeriod(d) > 0);
+    const cols = []; // [{d,p}]
+    for (const d of days) for (let p = 1; p <= maxPeriod(d); p++) cols.push({ d, p });
+    const lunch = o.showLunch ? Number(state.settings.lunchAfter || 0) : 0;
+    const school = o.title || state.settings.schoolName || '';
+    const headH = Math.min(14, Math.max(8, h * 0.05));
+    const footH = 3.5;
+    const hdrH = Math.min(12, Math.max(7, h * 0.045)); // 曜日＋時限の2段
+    const labW = Math.min(kind === 'class' ? 16 : 20, Math.max(10, w * 0.055));
+    const cw = (w - labW) / cols.length;
+    const rowH = (h - headH - footH - hdrH - 1.5) / keys.length;
+    const textLen = (t) => [...String(t)].reduce((a, c) => a + (/[ -~｡-ﾟ]/.test(c) ? 0.55 : 1), 0);
+    const fit = (t, base, wmm) => Math.max(base * 0.45, Math.min(base, (wmm * 0.9) / Math.max(1, textLen(t))));
+    const mainBase = Math.max(1.8, Math.min(rowH * 0.44, cw * 0.36, 5));
+    const subBase = Math.max(1.4, Math.min(rowH * 0.27, mainBase * 0.72));
+    const showSub = rowH >= 6.2; // 行が低い時は2行目（先生・科目）を出さない
+    const color = o.color === 'color';
+    const cellFor = (ids, span) => {
+      if (!ids.length) return '';
+      const W = cw * span - 0.8;
+      return ids.map(id => {
+        const it = state.items[id]; if (!it) return '';
+        const sj = sheetSubj(it, 'abbr');
+        let main, sub = '';
+        if (kind === 'class') {
+          main = sj.isChoice ? '選択' : sj.main.replace(/^[1-6１-６]\s*年?\s*(?=[^\d\s・-]{2})/, '');
+          if (o.showTea && (it.teas || []).length) sub = it.teas.length > 1 ? `${it.teas[0]}他` : it.teas[0];
+        } else {
+          main = (it.cls || []).length ? compactClsLabel(it.cls) : sj.main;
+          if (main !== sj.main) sub = sj.isChoice ? '選択' : sj.main;
+        }
+        const k = ids.length > 1 ? 0.7 : 1;
+        const fm = fit(main, mainBase * k, W), fs = fit(sub, subBase * k, W);
+        const col = color ? (state.subjectCfg[it.subjKey]?.color || pickColor(it.subjKey)) : '';
+        const st = color ? ` style="--ks-c:${col};--ks-bg:${paleColor(col, 0.2)}"` : '';
+        return `<div class="km-it"${st}><div class="km-m" style="font-size:${fm.toFixed(2)}mm">${sheetEsc(main)}</div>${showSub && sub && ids.length === 1 ? `<div class="km-s" style="font-size:${fs.toFixed(2)}mm">${sheetEsc(sub)}</div>` : ''}</div>`;
+      }).join('');
+    };
+    let body = '';
+    let prevGrade = null;
+    for (const key of keys) {
+      const g = kind === 'class' ? (/^(\d+)-/.exec(key) || [])[1] : null;
+      const sep = prevGrade != null && g != null && g !== prevGrade; // 学年の変わり目は太線
+      prevGrade = g;
+      let tr = `<tr class="${sep ? 'km-gsep' : ''}" style="height:${rowH.toFixed(2)}mm"><th class="km-lab" style="font-size:${Math.min(rowH * 0.42, labW * 0.22, 4.6).toFixed(2)}mm">${sheetEsc(kind === 'class' ? key : key)}</th>`;
+      for (let i = 0; i < cols.length; i++) {
+        const { d, p } = cols[i];
+        const ids = idsInCellForRow(kind, key, d, p, idx);
+        let span = 1;
+        // 2連は横につなげる（昼休みをまたぐ場合はつなげない）
+        if (ids.length === 1 && i + 1 < cols.length && cols[i + 1].d === d && !(lunch && p === lunch)) {
+          const nx = idsInCellForRow(kind, key, d, p + 1, idx);
+          if (nx.length === 1 && nx[0] === ids[0] && state.placements[ids[0]]?.period === p) span = 2;
+        }
+        const cls = ['km-c', p === 1 ? 'km-dstart' : '', (lunch && p === lunch + 1) ? 'km-lunch' : ''].filter(Boolean).join(' ');
+        // 色はマス全体に塗る（中の文字の箱だけだと、まだらに見える）
+        const it0 = ids.length === 1 ? state.items[ids[0]] : null;
+        const bg = (it0 && o.color === 'color') ? ` style="background:${paleColor(state.subjectCfg[it0.subjKey]?.color || pickColor(it0.subjKey), 0.2)}"` : '';
+        tr += `<td class="${cls}"${span > 1 ? ` colspan="2"` : ''}${bg}>${cellFor(ids, span)}</td>`;
+        i += span - 1;
+      }
+      body += tr + '</tr>';
+    }
+    const hd1 = days.map(d => `<th class="km-day km-dstart" colspan="${maxPeriod(d)}" style="font-size:${Math.min(hdrH * 0.36, 4.4).toFixed(2)}mm">${DAYJP[d]}</th>`).join('');
+    const hd2 = cols.map(({ d, p }) => `<th class="km-per${p === 1 ? ' km-dstart' : ''}${(lunch && p === lunch + 1) ? ' km-lunch' : ''}" style="font-size:${Math.min(hdrH * 0.3, cw * 0.4, 3.4).toFixed(2)}mm">${p}</th>`).join('');
+    const today = new Date();
+    const title = kind === 'class' ? '全校時間割（クラス別）' : '全校時間割（先生別）';
+    return `<div class="ks-sheet km-sheet ks-grid-${o.grid}${color ? ' ks-color' : ' ks-mono'}" style="width:${w}mm;height:${h}mm">
+      <div class="ks-head" style="height:${headH.toFixed(2)}mm">
+        <div class="ks-title" style="font-size:${Math.min(headH * 0.6, 9).toFixed(2)}mm">${title}</div>
+        <div class="ks-meta" style="font-size:${Math.min(headH * 0.3, 4).toFixed(2)}mm">${school ? `<div>${sheetEsc(school)}</div>` : ''}${o.term ? `<div>${sheetEsc(o.term)}</div>` : ''}</div>
+        ${pageCount > 1 ? `<div class="ks-hours" style="font-size:${Math.min(headH * 0.3, 3.6).toFixed(2)}mm">${pageNo} / ${pageCount}</div>` : ''}
+      </div>
+      <table class="ks-table km-table">
+        <colgroup><col style="width:${labW.toFixed(2)}mm">${cols.map(() => `<col style="width:${cw.toFixed(3)}mm">`).join('')}</colgroup>
+        <thead><tr style="height:${(hdrH * 0.55).toFixed(2)}mm"><th class="ks-corner km-lab" rowspan="2" style="font-size:${Math.min(hdrH * 0.3, 3.4).toFixed(2)}mm">${kind === 'class' ? 'クラス' : '先生'}</th>${hd1}</tr><tr style="height:${(hdrH * 0.45).toFixed(2)}mm">${hd2}</tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+      <div class="ks-foot" style="height:${footH}mm;font-size:2.4mm"><span>${sheetEsc(o.footer || '')}</span><span>${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日 作成</span></div>
+    </div>`;
+  }
   function renderSheets(area, type) {
     const o = sheetOpts();
-    const kind = type === 'sheet-teacher' ? 'teacher' : 'class';
+    const kind = (type === 'sheet-teacher' || type === 'sheet-all-teacher') ? 'teacher' : 'class';
+    const isAll = type === 'sheet-all-class' || type === 'sheet-all-teacher';
     const orient = $('#print-page-orient')?.value || 'landscape';
-    const PW = orient === 'landscape' ? 297 : 210, PH = orient === 'landscape' ? 210 : 297, M = 10, G = 6;
+    const A3 = o.paper === 'A3';
+    const S1 = A3 ? 420 : 297, S2 = A3 ? 297 : 210;
+    const PW = orient === 'landscape' ? S1 : S2, PH = orient === 'landscape' ? S2 : S1, M = 10, G = 6;
+    const pageStyle = () => {
+      let pStyle = document.getElementById('print-page-style');
+      if (!pStyle) { pStyle = document.createElement('style'); pStyle.id = 'print-page-style'; document.head.appendChild(pStyle); }
+      pStyle.textContent = `@media print { @page { size: ${A3 ? 'A3' : 'A4'} ${orient}; margin: 0; } }`;
+    };
+    if (isAll) {
+      // 一覧表: 行が低くなりすぎる（読めない）時だけページを分ける。分ける時は各ページの行数をそろえる
+      const idx0 = buildIndex();
+      let keysAll = getAxisKeys(kind).filter(k => DAYS.some(d => { for (let p = 1; p <= maxPeriod(d); p++) if (idsInCellForRow(kind, k, d, p, idx0).length) return true; return false; }));
+      // クラス一覧には「1-1」の形の普通のクラスだけを載せる（学務G などの会議は先生一覧で見える）
+      if (kind === 'class' && keysAll.some(k => /^\d+-\d+$/.test(k))) keysAll = keysAll.filter(k => /^\d+-\d+$/.test(k));
+      const w = PW - M * 2, h = PH - M * 2;
+      const usable = h - Math.min(14, Math.max(8, h * 0.05)) - 3.5 - Math.min(12, Math.max(7, h * 0.045)) - 1.5;
+      const minRow = 6.5; // これより低いと字が小さすぎる
+      const pages = Math.max(1, Math.ceil(keysAll.length * minRow / usable));
+      const per = Math.ceil(keysAll.length / pages);
+      let html = '';
+      for (let i = 0; i < pages; i++) {
+        const chunk = keysAll.slice(i * per, (i + 1) * per); if (!chunk.length) continue;
+        html += `<div class="ks-page" style="width:${PW}mm;height:${PH - 0.6}mm;padding:${M}mm;grid-template-columns:${w}mm;grid-template-rows:${h}mm;gap:0">${matrixSheetHTML(kind, chunk, idx0, o, w, h, i + 1, pages)}</div>`;
+      }
+      area.innerHTML = html || '<div class="card">印刷する時間割がありません</div>';
+      pageStyle();
+      const info = document.getElementById('sheet-count');
+      if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${pages > 1 && !A3 ? '（A3にすると枚数が減ります）' : ''}`;
+      return;
+    }
     const per = [1, 2, 4].includes(Number(o.perPage)) ? Number(o.perPage) : 1;
     // 2枚: 横向きなら左右、縦向きなら上下に並べる
     const cols = per === 1 ? 1 : per === 4 ? 2 : (orient === 'landscape' ? 2 : 1);
@@ -1398,9 +1515,7 @@
       html += `<div class="ks-page" style="width:${PW}mm;height:${PH - 0.6}mm;padding:${M}mm;grid-template-columns:repeat(${cols},${w.toFixed(2)}mm);grid-template-rows:repeat(${rowsN},${h.toFixed(2)}mm);gap:${G}mm">${chunk.map(k => sheetHTML(kind, k, idx, o, w, h)).join('')}</div>`;
     }
     area.innerHTML = html || '<div class="card">印刷する時間割がありません</div>';
-    let pStyle = document.getElementById('print-page-style');
-    if (!pStyle) { pStyle = document.createElement('style'); pStyle.id = 'print-page-style'; document.head.appendChild(pStyle); }
-    pStyle.textContent = `@media print { @page { size: A4 ${orient}; margin: 0; } }`;
+    pageStyle();
     const info = document.getElementById('sheet-count');
     if (info) info.textContent = keys.length ? `${keys.length}${kind === 'class' ? 'クラス' : '人'}・${Math.ceil(keys.length / per)}ページ` : '';
   }
