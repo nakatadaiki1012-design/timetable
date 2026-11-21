@@ -96,7 +96,8 @@ await test('保存データが壊れても1つ前の控えから復旧する', a
   const pg = await openApp();
   const before = await counts(pg);
   await pg.evaluate(() => { state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); });
-  await pg.evaluate(() => localStorage.setItem('ultimate_tt_state_v271', '{"broken'));
+  // 再読込の直前に自動保存が走ると壊したデータが正常なデータで上書きされ、試験にならないので「未保存なし」にしておく
+  await pg.evaluate(() => { state.autosave.dirty = false; localStorage.setItem('ultimate_tt_state_v271', '{"broken'); });
   await pg.reload(); await pg.waitForTimeout(800);
   const after = await counts(pg);
   assert(after.items === before.items && after.placed === before.placed, `復旧できない ${JSON.stringify(after)}`);
