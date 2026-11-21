@@ -3211,7 +3211,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
 
       // ★ 衝突があり、入替モードでもない → 衝突解決ダイアログ
-      showConflictResolutionDialog(id, day, period, existingComaIds);
+      showConflictResolutionDialog(id, day, period, existingComaIds, opts.afterPlace);
 
     } catch (e) {
       console.error('Error in placeItem:', e);
@@ -3219,7 +3219,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
   }
 
-  function showConflictResolutionDialog(id, day, period, existingComaIds) {
+  function showConflictResolutionDialog(id, day, period, existingComaIds, afterPlace = null) {
     try {
       const it = state.items[id];
       const scfg = state.subjectCfg[it.subjKey] || {};
@@ -3237,14 +3237,22 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       // Generate simple solutions
       const solutions = [];
 
-      // Solution 0: Force placement (ignore conflicts)
-      if (!absBlocks.length) {
-        solutions.push({
-          title: '⚠️ 強制配置（既存コマを上書き）',
-          action: 'force',
-          reason: ['制約を無視して配置（デバッグ用）'],
-          dangerous: true,
-        });
+      // 一番のおすすめ: 押し出されるコマも含めて全員が収まる形（収まり探索でこのマスだけを集中的に読む）
+      if (!absBlocks.length && typeof fitJob === 'function') {
+        try {
+          const job = fitJob(id, { hardDeadline: true, maxMoves: 14, nodeCap: 12000, sweeps: 2, onlySlot: { day, period } });
+          job.step(700);
+          const fit = job.suggestions()[0];
+          if (fit) {
+            solutions.push({
+              title: `⭐ 全員が収まる形で入れる（${fit.moves.length - 1}コマを動かす）`,
+              action: 'fit',
+              moves: fit.moves,
+              reason: (fit.reason || []).slice(1),
+              recommended: true,
+            });
+          }
+        } catch (e) { console.error('収まり探索(ドラッグ):', e); }
       }
 
       // Solution 1: Remove existing items
@@ -3270,6 +3278,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         const maxP = maxPeriod(altDay);
         for (let p = 1; p <= maxP; p++) {
           if (it.span === 2 && p === maxP) continue;
+          const curP = state.placements[id];
+          if (curP && curP.day === altDay && curP.period === p) continue; // 今いる場所は候補にしない
           const v = validatePlacement(id, altDay, p, 'safe', null);
           if (v.blocks.length === 0) {
             solutions.push({
@@ -3287,6 +3297,16 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       }
 
 
+      // 危険な「強制配置」は一番下に置く（以前は一番上にあり、押し間違えやすかった）
+      if (!absBlocks.length) {
+        solutions.push({
+          title: '⚠️ 強制配置（既存コマを上書き）',
+          action: 'force',
+          reason: ['重複したまま置きます（既存コマは在庫へ）'],
+          dangerous: true,
+        });
+      }
+
       // Show dialog with solutions
       const modal = document.getElementById('modal');
       const title = document.getElementById('modal-title');
@@ -3297,12 +3317,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       title.textContent = 'コマの配置方法を選択';
 
       const solutionHtml = solutions.map((sol, idx) => {
-        const bgColor = sol.dangerous ? '#fef2f2' : '#f1f5f9';
-        const borderColor = sol.dangerous ? '#fca5a5' : '#cbd5e1';
-        const textColor = sol.dangerous ? '#991b1b' : '#0f172a';
+        const bgColor = sol.dangerous ? '#fef2f2' : sol.recommended ? '#ecfdf5' : '#f1f5f9';
+        const borderColor = sol.dangerous ? '#fca5a5' : sol.recommended ? '#34d399' : '#cbd5e1';
+        const textColor = sol.dangerous ? '#991b1b' : sol.recommended ? '#065f46' : '#0f172a';
         return `
       <div style="background:${bgColor};border:1px solid ${borderColor};border-radius:8px;padding:10px;margin:8px 0;cursor:pointer;transition:all 0.2s;" 
-           onmouseover="this.style.background='${sol.dangerous ? '#fee2e2' : '#e2e8f0'}'" 
+           onmouseover="this.style.background='${sol.dangerous ? '#fee2e2' : sol.recommended ? '#d1fae5' : '#e2e8f0'}'" 
            onmouseout="this.style.background='${bgColor}'"
            onclick="window._applyConflictSolution(${idx});">
         <div style="font-weight:900;color:${textColor};">${escapeHtml(sol.title)}</div>
@@ -3311,7 +3331,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     `;
       }).join('');
 
-      msgDiv.innerHTML = `
+      // この窓は改行をそのまま表示する設定なので、HTMLの改行・字下げを詰めてから入れる（以前は大きなすき間ができていた）
+      msgDiv.innerHTML = (`
       <div style="margin-bottom:10px;">
         <div>「${escapeHtml(abbr)}」を ${DAYJP[day]}${period} に配置</div>
         <div style="font-size:12px;color:#64748b;margin-top:4px;">既存: 「${escapeHtml(existingNames)}」</div>
@@ -3319,7 +3340,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       </div>
       <div style="font-weight:900;color:#0f172a;margin:10px 0;font-size:12px;">解決案:</div>
       ${solutionHtml}
-    `;
+    `).replace(/>\s*\n\s*</g, '><').replace(/\n\s*/g, ' ');
 
       okBtn.style.display = 'none';
       cancelBtn.textContent = 'キャンセル';
@@ -3340,7 +3361,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (!sol) return;
 
 
-          if (sol.action === 'force') {
+          if (sol.action === 'fit') {
+            applySuggestion({ moves: sol.moves });
+            flash(`全員が収まる形で配置しました（${sol.moves.length}コマを移動）`);
+          } else if (sol.action === 'force') {
             // Force placement: remove existing items and place without validation
             // ただし禁制（固定禁則/教員不可など）は強制でも不可
             const abs = absoluteBlocksOf((validatePlacement(id, day, period, 'safe', null) || { blocks: [] }).blocks);
@@ -3363,12 +3387,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
             flash(`⚠️ 強制配置しました（制約無視）`);
           } else if (sol.action === 'remove') {
             // Remove existing items to stock
+            pushHistory('place'); // 外す前に記録する（以前は外した後に記録していて「元に戻す」で在庫へ出したコマが戻らなかった）
             for (const cid of sol.ids) {
               state.placements[cid] = null;
             }
             invalidateIndex();
             flash(`「${existingNames}」を在庫へ移動しました`);
-            pushHistory('place');
             doPlace(id, day, period, null);
           } else if (sol.action === 'swap') {
             pushHistory('place');
@@ -7518,8 +7542,6 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       <div class="sug-popup-header">
         <div class="sug-popup-title">💡 配置提案: <strong>${escapeHtml(it_name)}</strong></div>
         <span class="sug-popup-hint">↑↓ 移動 · Enter 採用 · Esc 閉じる</span>
-        <button class="sug-popup-deep" id="sug-popup-deep-btn">🧠 深読み:OFF</button>
-        <button class="sug-popup-lns" id="sug-popup-lns-btn">🧩 LNS:OFF</button>
         <button class="sug-popup-close" id="sug-popup-close-btn">✕</button>
       </div>
       <div class="sug-popup-body">
@@ -7726,19 +7748,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           <div class="idea-detail-panel">
             <div class="idea-detail-header">
               <span class="idea-detail-title">${escapeHtml(selSug.title || '提案')}</span>
-              <span class="ish-score">スコア: ${scoreVal} / ${depth}手</span>
+              <span class="ish-score">${depth <= 1 ? 'このコマだけ動かす' : `${depth}コマを動かす`}</span>
               <span class="idea-detail-nav">${selIdx + 1}/${selSugs.length}件
                 <button class="idea-btn-sm" id="idea-slot-prev" ${selIdx <= 0 ? 'disabled' : ''}>◀</button>
                 <button class="idea-btn-sm" id="idea-slot-next" ${selIdx >= selSugs.length - 1 ? 'disabled' : ''}>▶</button>
               </span>
             </div>
-            ${miniGridsHtml ? `<div class="idea-sug-grids">${miniGridsHtml}</div>` : ''}
-            <div class="idea-sug-moves-list">${movesListHtml || '<div style="padding:8px;color:#94a3b8">移動なし</div>'}</div>
-            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).join(' · '))}</div>` : ''}
+            <!-- 採用ボタンは上に置く（下までスクロールしなくても押せるように） -->
             <div class="idea-detail-actions">
-              <button class="idea-btn" id="idea-btn-reason">詳細</button>
               <button class="idea-btn apply ${isForce ? 'apply-force' : ''}" id="idea-btn-apply">${isForce ? '⚠ 強制採用' : '採 用'}</button>
+              <button class="idea-btn" id="idea-btn-reason">詳細</button>
             </div>
+            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).join(' · '))}</div>` : ''}
+            <div class="idea-sug-moves-list">${movesListHtml || '<div style="padding:8px;color:#94a3b8">移動なし</div>'}</div>
+            ${miniGridsHtml ? `<div class="idea-sug-grids">${miniGridsHtml}</div>` : ''}
           </div>
         `;
       } else if (selKey) {
@@ -8662,7 +8685,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // v49+: 連動提案（グリッド内・在庫不使用）を主軸に
     // computeLinkedSuggestions は puzSearch ベースでブロッカーの連鎖も解決
-    const linkedRaw = sortByScore(filterSame([...fitRaw, ...safeCompute(() => (deep && typeof computeLinkedSuggestionsDeep === 'function') ? computeLinkedSuggestionsDeep(id) : computeLinkedSuggestions(id), '連動')]));
+    // 従来の「連動」「回転」探索は、収まり探索と同じ形（入替・回転・連鎖）を遅く探すだけなので通常は使わない
+    // （提案を開く時間の半分以上を占めていた）。収まり探索が使えない場合だけ代わりに走らせる。
+    const fitOk = typeof fitSuggestions === 'function';
+    const linkedRaw = sortByScore(filterSame([...fitRaw, ...((fitOk && !deep) ? [] : safeCompute(() => (deep && typeof computeLinkedSuggestionsDeep === 'function') ? computeLinkedSuggestionsDeep(id) : computeLinkedSuggestions(id), '連動'))]));
 
     // 入替: 2コマ入替 + 連動提案の1手分
     const swapRaw = sortByScore(filterSame([
@@ -8670,7 +8696,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     ]));
 
     // 回転: 3〜4コマの回転（全グリッド内）
-    const cycleRaw = sortByScore(filterSame(safeCompute(() => (deep && typeof computeCycleSuggestionsDeep === 'function') ? computeCycleSuggestionsDeep(id) : computeCycleSuggestions(id), '回転')));
+    const cycleRaw = (fitOk && !deep) ? [] : sortByScore(filterSame(safeCompute(() => (deep && typeof computeCycleSuggestionsDeep === 'function') ? computeCycleSuggestionsDeep(id) : computeCycleSuggestions(id), '回転')));
 
     // パズル: 全体最適・先読み
     const lookaheadRaw = sortByScore(filterSame([

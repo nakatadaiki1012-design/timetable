@@ -7131,3 +7131,10 @@ body.mobile .grid-wrapper { flex: 1 1 auto; min-height: 0; overflow: auto !impor
 body.mobile .grid-wrapper { padding-top: 0 !important; }
 body.mobile .timetable thead tr:nth-child(2) th { position: sticky !important; top: 27px; z-index: 3; }
 body.mobile .timetable thead tr:first-child th { z-index: 4; top: -2px; }
+
+/* スマホ：提案の手順の行で、科目名が幅0に潰れて見えなかったのを直す（折り返して全項目を見せる） */
+body.mobile .idea-move-row { flex-wrap: wrap; gap: 3px 6px; white-space: normal; }
+body.mobile .im-idx { width: auto; }
+body.mobile .im-subj2 { flex: 0 0 auto; min-width: 2.5em; overflow: visible; }
+body.mobile .im-fromto { width: auto; }
+body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
