@@ -8950,6 +8950,19 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         ]);
       }
     }
+    // 4) それでも直らない時は、収まり探索で「他のクラス・先生のコマも含めて数コマ動かす」手を探す
+    //    （押し出されたコマも全員収まり、注意も増えず、連続・偏りが減る手だけを採用）
+    if (!best && typeof fitSuggestions === 'function' && Date.now() < deadline) {
+      try {
+        for (const s of fitSuggestions(id, Math.min(250, deadline - Date.now()), { maxMoves: 6 })) {
+          if (s.newWarns || !(s.deltaCost < -0.5)) continue;
+          if (best && s.deltaCost >= best.delta) continue;
+          const moves = s.moves.map(m => ({ id: m.id, day: m.day, period: m.period, span: m.span || 1 }));
+          if (moves.some(m => state.placements[m.id]?.locked) || !simulateMoves(moves).ok) continue;
+          best = { moves, delta: s.deltaCost };
+        }
+      } catch (e) { console.error('収まり探索(改善):', e); }
+    }
     return best;
   }
 
