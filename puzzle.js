@@ -581,3 +581,275 @@ function clearOverlays() {
   } catch { }
 }
 
+
+/* =====================================================================
+   収まり探索（fit solver）
+   「このコマをこのマスに入れたら、押し出されたコマはどこへ行けば全員収まるか」を
+   何手も先まで読む。専用の軽い盤面（どの先生・クラス・教室がいつ埋まっているか）を
+   1回だけ作り、1手ごとの差分更新で読むので、従来の探索より桁違いに多くの手を読める。
+   見つけた手順は最後に必ず本来の判定（validatePlacement）で確かめてから返す。
+===================================================================== */
+function fitBuildModel() {
+  const slots = [], slotOf = {}, dayStart = [], dayEnd = [];
+  for (const d of DAYS) {
+    slotOf[d] = {};
+    const st = slots.length, mp = maxPeriod(d);
+    for (let p = 1; p <= mp; p++) { slotOf[d][p] = slots.length; slots.push({ day: d, p }); }
+    for (let k = st; k < slots.length; k++) { dayStart[k] = st; dayEnd[k] = slots.length; }
+  }
+  const nS = slots.length;
+  const ids = Object.keys(state.items), ix = {};
+  ids.forEach((id, i) => { ix[id] = i; });
+  const N = ids.length;
+  const resIx = new Map(), resRoom = [], resCls = [];
+  const getRes = (k, kind) => { let r = resIx.get(k); if (r === undefined) { r = resIx.size; resIx.set(k, r); resRoom.push(kind === 2); resCls.push(kind === 1); } return r; };
+  const roomOn = !!state.settings.roomConflict;
+  const res = new Array(N), span = new Int8Array(N), par = new Uint8Array(N), locked = new Uint8Array(N), pos = new Int16Array(N), subj = new Int32Array(N);
+  const subjIx = new Map();
+  for (let i = 0; i < N; i++) {
+    const it = state.items[ids[i]], r = [];
+    for (const t of (it.teas || [])) r.push(getRes('T\u0001' + t, 0));
+    for (const c of (it.cls || [])) r.push(getRes('C\u0001' + c, 1));
+    if (roomOn) for (const m of (it.rooms || [])) r.push(getRes('R\u0001' + m, 2));
+    res[i] = r; span[i] = it.span || 1; par[i] = it.parallel ? 1 : 0;
+    if (!subjIx.has(it.subjKey)) subjIx.set(it.subjKey, subjIx.size);
+    subj[i] = subjIx.get(it.subjKey);
+    const plc = state.placements[ids[i]];
+    locked[i] = plc && plc.locked ? 1 : 0;
+    const s = plc && plc.day && slotOf[plc.day] ? slotOf[plc.day][plc.period] : undefined;
+    pos[i] = (s === undefined) ? -1 : s;
+  }
+  const occ = new Array(resIx.size * nS);
+  const M = { slots, slotOf, nS, ids, ix, N, res, resRoom, resCls, span, par, locked, pos, subj, occ, dayStart, dayEnd, allowed: new Array(N), mark: new Int32Array(N), stamp: 0 };
+  for (let i = 0; i < N; i++) if (pos[i] >= 0) fitAdd(M, i, pos[i]);
+  return M;
+}
+function fitAdd(M, i, s) {
+  const r = M.res[i], sp = M.span[i], end = M.dayEnd[s];
+  for (let k = 0; k < sp && s + k < end; k++) for (let j = 0; j < r.length; j++) { const c = r[j] * M.nS + s + k; (M.occ[c] || (M.occ[c] = [])).push(i); }
+}
+function fitRemove(M, i, s) {
+  const r = M.res[i], sp = M.span[i], end = M.dayEnd[s];
+  for (let k = 0; k < sp && s + k < end; k++) for (let j = 0; j < r.length; j++) { const a = M.occ[r[j] * M.nS + s + k]; if (a) { const q = a.indexOf(i); if (q >= 0) a.splice(q, 1); } }
+}
+// コマ i を置けるマス（他のコマの位置に関係なく決まる条件だけで判定。必要になったコマだけ計算して覚えておく）
+function fitAllowed(M, i) {
+  let a = M.allowed[i];
+  if (a) return a;
+  a = [];
+  const it = state.items[M.ids[i]];
+  for (let s = 0; s < M.nS; s++) {
+    const sl = M.slots[s];
+    if (s + M.span[i] > M.dayEnd[s]) continue;
+    if (staticBlocks(it, sl.day, sl.p).length === 0) a.push(s);
+  }
+  return (M.allowed[i] = a);
+}
+// コマ i をマス s に置いたときにぶつかるコマを out に集める（重複なし）
+function fitConflicts(M, i, s, out) {
+  const r = M.res[i], sp = M.span[i], st = ++M.stamp, mark = M.mark, pi = M.par[i];
+  out.length = 0;
+  for (let k = 0; k < sp; k++) for (let j = 0; j < r.length; j++) {
+    const a = M.occ[r[j] * M.nS + s + k];
+    if (!a || !a.length) continue;
+    const room = M.resRoom[r[j]];
+    for (let q = 0; q < a.length; q++) {
+      const x = a[q];
+      if (x === i || mark[x] === st) continue;
+      if (!room && pi && M.par[x]) continue; // 並列どうしは同じ時間に置ける
+      mark[x] = st; out.push(x);
+    }
+  }
+  return out;
+}
+// 同じ日に同じ科目がもうあるか（あるほど後回しにする。警告の出ない収まり方を先に見つけるため）
+function fitSameDayPen(M, i, s) {
+  const r = M.res[i]; let pen = 0;
+  for (let j = 0; j < r.length; j++) {
+    if (!M.resCls[r[j]]) continue;
+    for (let t = M.dayStart[s]; t < M.dayEnd[s]; t++) {
+      const a = M.occ[r[j] * M.nS + t];
+      if (a) for (let q = 0; q < a.length; q++) if (a[q] !== i && M.subj[a[q]] === M.subj[i]) pen++;
+    }
+  }
+  return pen;
+}
+function fitMix(x) { x = Math.imul(x ^ (x >>> 16), 0x45d9f3b); x = Math.imul(x ^ (x >>> 16), 0x45d9f3b); return (x ^ (x >>> 16)) >>> 0; }
+
+/* target を tslot に入れ、押し出されたコマを全員どこかに収める手順を探す。
+   limit = 動かしてよいコマ数（target を含む）。onSolution(placedItems) が true を返したら打ち切る。
+   戻り値: { capped: 読み切れずに打ち切ったか, timeout, nodes } */
+function fitSearch(M, target, tslot, limit, nodeCap, deadline, onSolution) {
+  const isPlaced = new Uint8Array(M.N), newPos = new Int16Array(M.N);
+  const pending = [], placed = [];
+  const seen = new Set();
+  let nodes = 0, capped = false, timeout = false, h1 = 0, h2 = 0;
+  const tmp = [];
+  function cands(x) {
+    const list = [];
+    const room = limit - placed.length - pending.length; // 新たに押し出してよい数
+    if (room < 0) return list;
+    const al = (x === target) ? [tslot] : fitAllowed(M, x);
+    for (let a = 0; a < al.length; a++) {
+      const s = al[a];
+      if (x !== target && s === M.pos[x]) continue;
+      fitConflicts(M, x, s, tmp);
+      if (tmp.length > room) continue;
+      let ok = true;
+      for (let q = 0; q < tmp.length; q++) { const k = tmp[q]; if (M.locked[k] || isPlaced[k]) { ok = false; break; } }
+      if (!ok) continue;
+      list.push({ s, K: tmp.slice(), w: tmp.length * 100 + fitSameDayPen(M, x, s) * 3 });
+    }
+    list.sort((p, q) => p.w - q.w);
+    return list;
+  }
+  function dfs() {
+    if (pending.length === 0) return onSolution(placed, newPos);
+    if (++nodes > nodeCap) { capped = true; return true; }
+    if ((nodes & 127) === 0 && performance.now() > deadline) { capped = true; timeout = true; return true; }
+    const key = h1 * 2097152 + (h2 >>> 11);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    // 置き場所の候補が最も少ないコマから片付ける
+    let bx = -1, bl = null;
+    for (let q = 0; q < pending.length; q++) {
+      const l = cands(pending[q]);
+      if (!l.length) return false;
+      if (!bl || l.length < bl.length) { bx = pending[q]; bl = l; if (l.length === 1) break; }
+    }
+    pending.splice(pending.indexOf(bx), 1);
+    let stop = false;
+    for (let c = 0; c < bl.length && !stop; c++) {
+      const { s, K } = bl[c];
+      for (let q = 0; q < K.length; q++) { fitRemove(M, K[q], M.pos[K[q]]); pending.push(K[q]); }
+      fitAdd(M, bx, s); isPlaced[bx] = 1; newPos[bx] = s; placed.push(bx);
+      const z1 = fitMix(bx * 64 + s + 1), z2 = fitMix(bx * 64 + s + 0x9e3779b1);
+      h1 = (h1 ^ z1) >>> 0; h2 = (h2 ^ z2) >>> 0;
+      stop = dfs();
+      h1 = (h1 ^ z1) >>> 0; h2 = (h2 ^ z2) >>> 0;
+      placed.pop(); isPlaced[bx] = 0; fitRemove(M, bx, s);
+      for (let q = K.length - 1; q >= 0; q--) { pending.splice(pending.lastIndexOf(K[q]), 1); fitAdd(M, K[q], M.pos[K[q]]); }
+    }
+    pending.push(bx);
+    return stop;
+  }
+  const had = M.pos[target] >= 0;
+  if (had) fitRemove(M, target, M.pos[target]);
+  pending.push(target);
+  try { dfs(); } finally { if (had) fitAdd(M, target, M.pos[target]); }
+  return { capped, timeout, nodes };
+}
+
+/* あるコマ id について、全マスを対象に「全員が収まる手順」を探す仕事。
+   step(ms) を呼ぶたびに ms ミリ秒ぶん進む（画面を固めずに長考できる）。
+   手数の少ない順（1手→2手→…）に全マスを一巡ずつ深くしていく。 */
+function fitJob(id, opts = {}) {
+  const M = fitBuildModel();
+  const t = M.ix[id];
+  const maxL = opts.maxMoves || 12;
+  const baseCap = opts.nodeCap || 3000;
+  const maxSweeps = opts.sweeps || 1;
+  const cells = [], queue = [];
+  const warnBefore = new Map();
+  let totalNodes = 0, evals = 0;
+  if (t !== undefined && !M.locked[t]) {
+    const al = new Set(fitAllowed(M, t)), tmp = [];
+    for (let s = 0; s < M.nS; s++) {
+      if (s === M.pos[t] || !al.has(s)) continue;
+      fitConflicts(M, t, s, tmp);
+      if (tmp.some(k => M.locked[k])) continue; // ロックされたコマとぶつかるマスは入れない
+      const c = { s, day: M.slots[s].day, p: M.slots[s].p, L: 1 + tmp.length, best: null, bestL: 0, done: false, sweep: 0, cappedL: 0, tried: new Set() };
+      if (c.L > maxL) continue;
+      cells.push(c);
+    }
+    cells.sort((a, b) => a.L - b.L);
+    for (const c of cells) queue.push(c);
+  }
+  const baseWarns = (iid) => {
+    if (warnBefore.has(iid)) return warnBefore.get(iid);
+    const plc = state.placements[iid];
+    let n = 0;
+    if (plc && plc.day) { try { n = (validatePlacement(iid, plc.day, plc.period, 'safe', null).warns || []).length; } catch (e) { } }
+    warnBefore.set(iid, n); return n;
+  };
+  function evalSolution(c, placed, newPos) {
+    const moves = placed.map(i => ({ id: M.ids[i], day: M.slots[newPos[i]].day, period: M.slots[newPos[i]].p, span: M.span[i] }));
+    const key = moves.map(m => m.id + '@' + m.day + m.period).sort().join('|');
+    if (c.tried.has(key)) return false;
+    c.tried.add(key);
+    let before = 0; for (const m of moves) before += baseWarns(m.id);
+    evals++;
+    const infs = puzEvalAll(moves); // 本来の判定で確かめる
+    let after = 0;
+    for (const inf of infs) { if (inf.blocks.length) return false; after += inf.warns.length; }
+    const newWarns = Math.max(0, after - before);
+    if (!c.best || newWarns < c.best.newWarns) { c.best = { moves, newWarns, warnTexts: infs.flatMap(x => x.warns) }; c.bestL = moves.length; }
+    return newWarns === 0 || c.tried.size >= (c.L <= 3 ? 12 : 6) + c.sweep * 6;
+  }
+  function runUnit(c, deadline) {
+    const cap = baseCap * Math.pow(6, c.sweep) * (c.L >= 6 ? 2 : 1);
+    const before = c.tried.size;
+    const r = fitSearch(M, t, c.s, c.L, cap, deadline, (placed, newPos) => evalSolution(c, placed, newPos));
+    totalNodes += r.nodes;
+    if (c.best && c.best.newWarns === 0) { c.done = true; return; }
+    if (r.timeout) return;
+    if (r.capped && !c.cappedL && c.tried.size === before) c.cappedL = c.L;
+    c.L++;
+    // 警告つきの案しか無いときは、あと2手だけ深く読んで警告なしの案を探す
+    if (c.L > maxL || (c.best && c.L > c.bestL + 2)) {
+      if (!c.best && c.cappedL && c.sweep + 1 < maxSweeps) { c.sweep++; c.L = c.cappedL; c.cappedL = 0; } // 読み切れなかったマスは、後でもっと粘って読み直す
+      else c.done = true;
+    }
+  }
+  return {
+    cells,
+    step(ms) {
+      const end = performance.now() + ms;
+      while (queue.length && performance.now() < end) {
+        const c = queue.shift();
+        runUnit(c, opts.hardDeadline ? end : Infinity);
+        if (!c.done) queue.push(c);
+      }
+      return queue.length === 0;
+    },
+    progress() { const solved = cells.filter(c => c.best).length; return { solved, total: cells.length, remaining: queue.length, nodes: totalNodes, evals }; },
+    suggestions(tag) {
+      const out = [];
+      for (const c of cells) {
+        if (!c.best) continue;
+        const moves = c.best.moves.map(m => { const cur = state.placements[m.id]; return { ...m, fromDay: cur?.day, fromPeriod: cur?.period }; });
+        const depth = moves.length - 1;
+        const others = moves.filter(m => m.id !== id);
+        const desc = others.map(m => {
+          const it = state.items[m.id]; const sc = state.subjectCfg[it?.subjKey] || {};
+          const nm = (sc.abbr || it?.subj || m.id) + (it?.cls?.length ? '[' + it.cls.join(',') + ']' : '');
+          return `${nm} ${m.fromDay ? DAYJP[m.fromDay] + m.fromPeriod : '在庫'}→${DAYJP[m.day]}${m.period}`;
+        }).join(' → ');
+        const nw = c.best.newWarns;
+        // 時間割の質（先生の連続コマ・同じ教科の偏りなど）がどう変わるか。負なら良くなる
+        let dq = 0; try { if (typeof moveDeltaCost === 'function') dq = moveDeltaCost(moves) || 0; } catch (e) { }
+        const qNote = dq <= -30 ? '👍 連続コマや偏りが減ります' : dq >= 60 ? '△ 連続コマや偏りが少し増えます' : '';
+        out.push({
+          title: `${tag || ''}${depth === 0 ? '直接' : (depth + 1) + '手連動'}: ${DAYJP[c.day]}${c.p}限へ`,
+          score: Math.max(10, 94 - depth * 5 - nw * 9 - Math.max(-6, Math.min(12, Math.round(dq / 20)))),
+          reason: [
+            depth === 0 ? '空いています' : `${depth}コマを動かすと全員が収まります（在庫に出るコマなし）`,
+            ...(desc ? [desc] : []),
+            nw ? `⚠ 注意が${nw}件増えます: ${[...new Set(c.best.warnTexts)].slice(0, 2).join(' / ')}` : '✓ 重複なし・注意も増えません',
+            ...(qNote ? [qNote] : []),
+          ],
+          moves, noStock: true, chainDepth: depth, isFit: true, newWarns: nw,
+        });
+      }
+      return out;
+    },
+  };
+}
+// 提案を開いたときに使う同期版（budgetMs の間だけ読む）
+function fitSuggestions(id, budgetMs, opts = {}) {
+  const job = fitJob(id, { hardDeadline: true, ...opts });
+  job.step(budgetMs);
+  const out = job.suggestions();
+  out._progress = job.progress();
+  return out;
+}

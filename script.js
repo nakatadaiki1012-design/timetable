@@ -2971,11 +2971,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     return arr.includes(period);
   }
 
-  function validatePlacement(id, day, period, mode = 'safe', swapTargetId = null) {
-    // returns {ok, warns:[...], blocks:[...]}
-    const it = state.items[id];
-    if (!it) return { ok: false, warns: [], blocks: ['不明なコマ'] };
-    const warns = []; const blocks = [];
+  // 他のコマの位置に関係なく決まる「置けない理由」（時限の範囲・2連の最終時限・クラス時限上限・固定禁則/自選・教員不可）。
+  // validatePlacement と、先読み探索（puzzle.js の収まり探索）の両方が同じ判定を使う。
+  function staticBlocks(it, day, period) {
+    const blocks = [];
     const maxP = maxPeriod(day);
     if (period < 1 || period > maxP) blocks.push('その曜日にその時限はありません');
     if (it.span === 2 && period === maxP) blocks.push('2連は最終時限に開始できません');
@@ -2990,6 +2989,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     for (let dp = 0; dp < it.span; dp++) {
       if (isForbiddenForSubject(it.subjKey, day, period + dp)) blocks.push(jisenRule(it.subjKey) ? `自選は${(jisenRule(it.subjKey).day && DAYJP[jisenRule(it.subjKey).day]) || '指定の曜日'}の最後のコマにしか置けません` : `固定禁則: ${DAYJP[day]}${period + dp}`);
     }
+    for (const tea of it.teas) {
+      for (let dp = 0; dp < it.span; dp++) {
+        if (isUnavailableForTeacher(tea, day, period + dp)) blocks.push(`教員不可: ${tea} ${DAYJP[day]}${period + dp}`);
+      }
+    }
+    return blocks;
+  }
+
+  function validatePlacement(id, day, period, mode = 'safe', swapTargetId = null) {
+    // returns {ok, warns:[...], blocks:[...]}
+    const it = state.items[id];
+    if (!it) return { ok: false, warns: [], blocks: ['不明なコマ'] };
+    const warns = []; const blocks = staticBlocks(it, day, period);
+    const maxP = maxPeriod(day);
 
     // teacher unavailable & conflicts
     const idx = buildIndex();
@@ -2999,7 +3012,6 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     for (const tea of it.teas) {
       for (let dp = 0; dp < it.span; dp++) {
         const p = period + dp;
-        if (isUnavailableForTeacher(tea, day, p)) blocks.push(`教員不可: ${tea} ${DAYJP[day]}${p}`);
         // v47-B1: breakSlots 警告（配置は可能だが推奨しない）
         const bSlots = state.teacherCfg[tea]?.breakSlots;
         if (bSlots && (bSlots[day] || []).includes(p)) warns.push(`休憩推奨コマ: ${tea} ${DAYJP[day]}${p}（可能だが要確認）`);
@@ -7641,7 +7653,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
             else { mark = '△'; className = 'mark-ok'; }
 
             const activeCls = isSelected ? 'active-cell' : '';
-            const cntBadge = cell.sugs.length > 1 ? `<span style="font-size:8px;color:#94a3b8;display:block;line-height:1">${cell.sugs.length}</span>` : '';
+            // マークの下に「動かすコマ数」を出す（△でも3コマで済むのか10コマ動くのかが一目で分かるように）
+            const cntBadge = depth >= 2 ? `<span style="font-size:9px;font-weight:800;color:${depth >= 6 ? '#b45309' : '#64748b'};display:block;line-height:1">${depth + 1}コマ</span>` : '';
             const currentFlag = isCurrent ? '<span style="font-size:9px;vertical-align:top">現</span>' : '';
 
             matrixTrs += `<td class="idea-matrix-cell js-matrix-cell ${className} ${activeCls}" data-day="${d}" data-per="${p}" title="${escapeAttr(sugCellTip(d, p, cell, best, depth))}">${currentFlag}${mark}${cntBadge}</td>`;
@@ -7714,9 +7727,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       <div class="sug-head">
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <div class="sug-hint" style="color:#475569;font-size:12px;font-weight:800;flex:1">コマ入れ提案 — ${escapeHtml((state.items[id]?.subj || id).slice(0, 20))}</div>
-          <button class="idea-btn" id="idea-btn-deep" style="width:auto;padding:4px 12px;font-size:11px;background:#7c3aed;color:#fff;border:none">🤔 将棋モード (長考・8秒)</button>
+          <button class="idea-btn" id="idea-btn-deep" style="width:auto;padding:4px 12px;font-size:11px;background:#7c3aed;color:#fff;border:none">🤔 長考（最大8秒・もっと深く読む）</button>
         </div>
-        <div class="sug-hint" style="color:#94a3b8;font-size:11px">◎直接配置 〇1手 △2手以上 ×不可 ｜ セルクリックで詳細表示</div>
+        <div class="sug-hint" style="color:#94a3b8;font-size:11px">◎そのまま置ける　〇入れ替え1回　△数コマ動かせば全員収まる（数字＝動かすコマ数）　×入れない ｜ マスを押すと手順を表示</div>
       </div>
       ${matrixHtml}
       ${detailHtml}
@@ -7786,90 +7799,29 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           if (!it) return;
 
           let foundAny = false;
-          let totalVisits = 0;
-          let slotsSearched = 0;
           const globalStart = performance.now();
-          const GLOBAL_TIMEOUT = 10000; // 全体10秒
-
-          // 候補スロットを事前にスコアリングして有望順にソート
-          const candidateSlots = [];
-          for (const day of DAYS) {
-            const mp = maxPeriod(day);
-            for (let p = 1; p <= mp; p++) {
-              if ((it.span || 1) === 2 && p >= mp) continue;
-              const curPlc = state.placements[id];
-              if (curPlc && curPlc.day === day && curPlc.period === p) continue;
-
-              const v = validatePlacement(id, day, p, 'safe', null) || { blocks: [], warns: [] };
-              // 完全空き（blocks=0, warns=0）は既にemptyタブにあるのでスキップ
-              if (v.blocks.length === 0 && v.warns.length === 0) continue;
-
-              // 優先度: ブロッカーが少ないほど有望
-              const priority = 100 - v.blocks.length * 15 - v.warns.length * 5 + (p <= 3 ? 3 : 0);
-              candidateSlots.push({ day, p, priority, blocks: v.blocks.length });
-            }
+          const GLOBAL_TIMEOUT = 8000; // 全体8秒
+          // 収まり探索を、画面を固めないよう小分けにしながら時間いっぱいまで深く読む（最大16コマ連動）
+          const myToken = openPropSuggestions._token;
+          const job = fitJob(id, { maxMoves: 16, nodeCap: 20000, sweeps: 3 });
+          let finished = false;
+          while (!finished && performance.now() - globalStart < GLOBAL_TIMEOUT) {
+            finished = job.step(60);
+            const pr = job.progress();
+            btnDeep.textContent = `🤔 長考中… ${Math.min(99, Math.round((performance.now() - globalStart) / GLOBAL_TIMEOUT * 100))}%（${pr.solved}/${pr.total}マスで収まる形を発見）`;
+            await new Promise(r => setTimeout(r, 0));
+            if (myToken !== openPropSuggestions._token || !document.body.contains(btnDeep)) return; // 閉じた/別のコマを開いた
           }
-          candidateSlots.sort((a, b) => b.priority - a.priority);
-
-          // 全スロットを探索（ただし有望順上位60に絞る）
-          const topSlots = candidateSlots.slice(0, 60);
-          const totalSlots = topSlots.length;
-          if (totalSlots === 0) {
-            btnDeep.textContent = '探索対象スロットがありません';
-            btnDeep.style.background = originalBg; btnDeep.disabled = false;
-            return;
+          // 長考の前から「収まる案」があったマス（強制以外のどれかの案があるマス）
+          const before = new Set(['empty', 'swap', 'cycle', 'linked', 'lookahead', 'lns'].flatMap(k => pack[k] || []).filter(s => (s.score || 0) >= 0).map(s => { const m = (s.moves || []).find(m => m.id === id); return m ? m.day + '-' + m.period : ''; }));
+          pack.linked = (pack.linked || []).filter(s => !s.isFit);
+          let newCells = 0;
+          for (const sg of job.suggestions()) {
+            const mt = sg.moves.find(m => m.id === id);
+            if (mt && !before.has(mt.day + '-' + mt.period)) { newCells++; sg.isDeep = true; sg.title = '♛長考 ' + sg.title; }
+            pack.linked.push(sg);
           }
-
-          for (const slot of topSlots) {
-            // 全体タイムアウトチェック
-            if (performance.now() - globalStart > GLOBAL_TIMEOUT) break;
-
-            slotsSearched++;
-
-            // 1スロットあたりの時間を残り時間から動的に配分
-            const elapsed = performance.now() - globalStart;
-            const remaining = GLOBAL_TIMEOUT - elapsed;
-            const slotsLeft = totalSlots - slotsSearched + 1;
-            const perSlotMs = Math.max(100, Math.min(2000, remaining / slotsLeft));
-
-            try {
-              const moves = await window.puzSearchOptAsync(id, slot.day, slot.p, {
-                shogi: true,
-                maxMs: Math.round(perSlotMs),
-                maxVisits: 50000,
-                maxInvolved: 20
-              }, (visits, max) => {
-                totalVisits = Math.max(totalVisits, visits); // 最大値を追跡
-                const pct = Math.round((slotsSearched / totalSlots) * 100);
-                btnDeep.textContent = `🤔 長考中... ${pct}% (${slotsSearched}/${totalSlots}スロット)`;
-              });
-
-              if (moves && moves.length) {
-                const mTarget = moves.find(m => m.id === id);
-                if (mTarget) {
-                  const depth = moves.length - 1;
-                  const typeLabel = depth === 0 ? '直接'
-                    : depth === 1 ? '2手連動'
-                      : depth === 2 ? '3手連動'
-                        : `${depth + 1}手連動`;
-                  const sug = {
-                    title: `♛将棋AI ${typeLabel}: ${DAYJP[slot.day]}${slot.p}限へ`,
-                    score: Math.max(30, 95 - depth * 5),
-                    reason: [`${depth}コマを連携移動 (将棋モード長考結果・${depth + 1}手読み)`],
-                    moves: moves,
-                    noStock: true,
-                    isDeep: true
-                  };
-
-                  if (!pack.linked) pack.linked = [];
-                  pack.linked.push(sug);
-                  foundAny = true;
-                }
-              }
-            } catch (e) {
-              console.warn('将棋モード探索エラー:', e);
-            }
-          }
+          foundAny = newCells > 0;
 
           // ── 結果後処理 ──
           // 同じ移動先への重複提案をまとめ、スコア降順でソート
@@ -7898,11 +7850,12 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           };
 
           if (!foundAny) {
-            btnDeep.textContent = `見つかりませんでした (${totalSec}秒)`;
-            setTimeout(resetBtn, 3000);
+            render(); // 既存マスの案がより良い手順に置き換わっている場合があるので描き直す
+            try { flash(`長考しましたが、これ以上収まるマスは見つかりませんでした（${totalSec}秒）`); } catch (e) { }
           } else {
             const cnt = (pack.linked || []).filter(s => s.isDeep).length;
-            btnDeep.textContent = `♛ ${cnt}件の新手! (${totalSec}秒) — 再探索`;
+            btnDeep.textContent = `♛ 新たに${cnt}マスで収まる形を発見 (${totalSec}秒)`;
+            try { flash(`長考の結果: 新たに${cnt}マスで、全員が収まる形が見つかりました`); } catch (e) { }
             resetBtn(); // 即座に再有効化（再クリックで再探索できる）
             // 🔗連動タブに自動切替して結果を表示
             pack._tab = 'linked';
@@ -8655,7 +8608,11 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const deep = !!(window && window.__SUG_DEEP);
     // 提案一式で共有する総時間予算。多数のpuzSearch呼び出しの合計を抑えてポップアップの固まりを防ぐ。
     // 深読みONのときは少し長めに許容する。
-    try { window.__PUZ_GLOBAL_DEADLINE = Date.now() + (deep ? 2800 : 1600); if (typeof __puzMemo !== 'undefined') __puzMemo.clear(); } catch (e) { }
+    // まず収まり探索（全マスについて「押し出されたコマも全員収まる手順」を高速に読む）を走らせ、
+    // 従来の探索は残りの短い時間で別案を足す役に回す。
+    let fitRaw = [];
+    try { if (typeof fitSuggestions === 'function') fitRaw = fitSuggestions(id, deep ? 1500 : 500, deep ? { maxMoves: 14, nodeCap: 8000, sweeps: 2 } : {}); } catch (e) { console.error('提案計算エラー (収まり探索):', e); }
+    try { window.__PUZ_GLOBAL_DEADLINE = Date.now() + (deep ? 1200 : 300); if (typeof __puzMemo !== 'undefined') __puzMemo.clear(); } catch (e) { }
     const safeCompute = (fn, label) => {
       try {
         return fn() || [];
@@ -8681,7 +8638,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // v49+: 連動提案（グリッド内・在庫不使用）を主軸に
     // computeLinkedSuggestions は puzSearch ベースでブロッカーの連鎖も解決
-    const linkedRaw = sortByScore(filterSame(safeCompute(() => (deep && typeof computeLinkedSuggestionsDeep === 'function') ? computeLinkedSuggestionsDeep(id) : computeLinkedSuggestions(id), '連動')));
+    const linkedRaw = sortByScore(filterSame([...fitRaw, ...safeCompute(() => (deep && typeof computeLinkedSuggestionsDeep === 'function') ? computeLinkedSuggestionsDeep(id) : computeLinkedSuggestions(id), '連動')]));
 
     // 入替: 2コマ入替 + 連動提案の1手分
     const swapRaw = sortByScore(filterSame([
@@ -17346,9 +17303,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       // 別IIFE（AI提案/問題分析）が素の識別子で参照する第1IIFEヘルパを公開し、
       // グローバル解決で未定義参照クラッシュを防ぐ
       Object.assign(window, {
-        buildIndex, clampInt, deepClone, flash, isSpanFill,
+        buildIndex, clampInt, deepClone, flash, isSpanFill, staticBlocks,
         teacherDailyMax, teacherConsecMax, teacherDayCount,
-        chainQualityScore, softPlacementPenalty, clearValidSlots, simulateMoves,
+        chainQualityScore, moveDeltaCost, softPlacementPenalty, clearValidSlots, simulateMoves,
         normalizeAbbr, showModal, showModalHTML,
         // トップレベルのパズル/連鎖探索(puzSearch等)が素の識別子で参照するIIFE内定数/関数。
         // これらが未公開だと puzSearch が「DAYS is not defined」でクラッシュし、

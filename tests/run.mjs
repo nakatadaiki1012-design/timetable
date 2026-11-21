@@ -185,6 +185,30 @@ await test('提案の窓が開き、候補が出る', async () => {
   await pg.close2();
 });
 
+await test('提案（収まり探索）: 出した案はすべて重複なし・在庫に出るコマなし', async () => {
+  const pg = await openApp();
+  const r = await pg.evaluate(() => {
+    const ids = Object.keys(state.items).filter(i => state.placements[i] && state.placements[i].day && !state.placements[i].locked).sort();
+    const pick = [ids[2], ids[Math.floor(ids.length / 3)], ids[Math.floor(ids.length * 2 / 3)], ids[ids.length - 3]];
+    const before = JSON.stringify(state.placements);
+    let total = 0, multi = 0, bad = 0;
+    for (const id of pick) {
+      for (const s of fitSuggestions(id, 400)) {
+        total++; if (s.moves.length >= 3) multi++;
+        const tgt = s.moves.find(m => m.id === id);
+        const ok = tgt && simulateMoves(s.moves).ok && s.moves.every(m => m.day && m.period >= 1) && new Set(s.moves.map(m => m.id)).size === s.moves.length;
+        if (!ok) bad++;
+      }
+    }
+    return { total, multi, bad, unchanged: JSON.stringify(state.placements) === before };
+  });
+  assert(r.total > 0, '案が1つも出ない');
+  assert(r.multi > 0, '3コマ以上を動かす案が1つも出ない（深く読めていない）');
+  assert(r.bad === 0, `問題のある案が${r.bad}件`);
+  assert(r.unchanged, '探索しただけで時間割が変わってしまった');
+  await pg.close2();
+});
+
 await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {
   const pg = await openApp();
   await pg.click('#tab-edit'); await pg.waitForTimeout(300);
