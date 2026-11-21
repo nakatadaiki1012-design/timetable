@@ -7138,3 +7138,52 @@ body.mobile .im-idx { width: auto; }
 body.mobile .im-subj2 { flex: 0 0 auto; min-width: 2.5em; overflow: visible; }
 body.mobile .im-fromto { width: auto; }
 body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
+
+/* ===== すぐ使える時間割表（掲示用・配布用） ===== */
+.sheet-opts { display: none; }
+#view-print.sheet-mode .sheet-opts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px 14px; margin: 0 0 10px; font-size: 13px; }
+#view-print.sheet-mode .toolbar > :not(.keep) { display: none !important; }
+#view-print.sheet-mode .print-layout { display: none !important; }
+.sheet-opts .so-f { display: inline-flex; align-items: center; gap: 6px; }
+.sheet-opts .so-f > span:first-child { color: #64748b; font-weight: 700; font-size: 12px; }
+.sheet-opts .so-r { display: inline-flex; align-items: center; gap: 3px; font-weight: 700; cursor: pointer; }
+.sheet-opts input[type=text] { padding: 4px 8px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 12px; }
+#view-print.sheet-mode .print-area { background: #94a3b8; padding: 16px; border-radius: 12px; overflow: auto; }
+
+.ks-page { display: grid; box-sizing: border-box; background: #fff; margin: 0 auto 16px; box-shadow: 0 4px 18px rgba(15,23,42,.25); page-break-after: always; break-after: page; overflow: hidden; }
+.ks-page:last-child { page-break-after: auto; break-after: auto; }
+.ks-sheet { box-sizing: border-box; display: flex; flex-direction: column; color: #0f172a; font-family: "Hiragino Kaku Gothic ProN", "Hiragino Sans", "BIZ UDPGothic", "Yu Gothic", Meiryo, sans-serif; overflow: hidden; }
+.ks-head { display: flex; align-items: flex-end; gap: 4mm; border-bottom: 0.7mm solid #0f172a; padding-bottom: 1mm; margin-bottom: 1mm; box-sizing: border-box; }
+.ks-title { font-weight: 900; letter-spacing: .04em; line-height: 1; white-space: nowrap; }
+.ks-meta { flex: 1; color: #334155; font-weight: 700; line-height: 1.25; }
+.ks-hours { color: #475569; font-weight: 700; white-space: nowrap; }
+.ks-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.ks-table th, .ks-table td { border: 0.35mm solid #1e293b; padding: 0; text-align: center; vertical-align: middle; overflow: hidden; }
+.ks-grid-thin .ks-table th, .ks-grid-thin .ks-table td { border-width: 0.18mm; border-color: #64748b; }
+.ks-table thead th { background: #e2e8f0; font-weight: 900; }
+.ks-table .ks-corner { background: #e2e8f0; }
+.ks-table .ks-p { background: #f1f5f9; font-weight: 900; }
+.ks-table .ks-none { background: repeating-linear-gradient(135deg, #f1f5f9 0 1.5mm, #e2e8f0 1.5mm 2mm); }
+.ks-mono .ks-table thead th, .ks-mono .ks-table .ks-p, .ks-mono .ks-table .ks-corner { background: #fff; }
+.ks-mono .ks-table .ks-none { background: repeating-linear-gradient(135deg, #fff 0 1.5mm, #d4d4d4 1.5mm 1.8mm); }
+.ks-lunch td { background: #f8fafc; color: #64748b; font-weight: 700; letter-spacing: .5em; border-left: 0.35mm solid #1e293b; }
+.ks-mono .ks-lunch td { background: #fff; }
+.ks-c { height: 100%; }
+.ks-item { height: 100%; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 0.4mm 0.8mm; box-sizing: border-box; line-height: 1.12; }
+.ks-color .ks-item { background: var(--ks-bg); box-shadow: inset 1.2mm 0 0 var(--ks-c); padding-left: 1.6mm; }
+.ks-item.ks-many { height: auto; min-height: 0; padding-top: 0.3mm; padding-bottom: 0.3mm; }
+.ks-item.ks-many + .ks-item { border-top: 0.2mm dashed #94a3b8; }
+.ks-main { font-weight: 900; word-break: break-all; }
+.ks-sub { color: #334155; font-weight: 700; margin-top: 0.4mm; word-break: break-all; }
+.ks-foot { display: flex; justify-content: space-between; align-items: center; color: #64748b; padding-top: 0.6mm; box-sizing: border-box; }
+
+@media print {
+  #view-print.sheet-mode .print-area { background: none; padding: 0; border-radius: 0; overflow: visible; }
+  .ks-page { margin: 0; box-shadow: none; }
+  .ks-sheet, .ks-item, .ks-table th, .ks-table td, .ks-lunch td { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+@media print {
+  /* 掲示用の印刷では、画面側の余白・背景を消して紙いっぱいに使う（余白が残ると次のページへ押し出され、白紙ができた） */
+  html:has(#view-print.sheet-mode), body:has(#view-print.sheet-mode) { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+  body:has(#view-print.sheet-mode) .app-main, body:has(#view-print.sheet-mode) #view-print { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+}

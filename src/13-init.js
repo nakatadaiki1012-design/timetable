@@ -994,7 +994,11 @@
 
     // print
     $('#btn-print').onclick = () => window.print();
-    $('#btn-pdf-export')?.addEventListener('click', () => { try { exportPDF(); } catch (e) { console.error(e); flash('PDFエラー: ' + e.message); } });
+    $('#btn-pdf-export')?.addEventListener('click', () => {
+      // 掲示用の時間割表は、ブラウザの印刷から「PDFに保存」する方が文字がくっきりして速い
+      if (document.getElementById('view-print')?.classList.contains('sheet-mode')) { flash('印刷の画面で、送り先（プリンター）を「PDFに保存」にしてください', 6000); setTimeout(() => window.print(), 300); return; }
+      try { exportPDF(); } catch (e) { console.error(e); flash('PDFエラー: ' + e.message); }
+    });
     // print cell/font size
     const printStep = (key, delta) => {
       state.ui[key] = clamp((state.ui[key] || 0) + delta, -4, 8);
