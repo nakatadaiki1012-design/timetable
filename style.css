@@ -7204,3 +7204,28 @@ body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
 .ks-head { border-bottom-width: 0.9mm; }
 .ks-table thead th.ks-day, .ks-table thead th.ks-corner { border-left-color: #64748b; border-right-color: #64748b; }
 .ks-mono .ks-table thead th.ks-day, .ks-mono .ks-table thead th.ks-corner { border-left-color: #777; border-right-color: #777; }
+
+/* ===== 全校一覧（クラス／先生を1枚に並べる） ===== */
+#view-print.sheet-all .so-one { display: none !important; }
+.km-table { flex: 1; }
+.km-table th, .km-table td { border-width: 0.18mm; border-color: #64748b; }
+.km-table thead th { background: #1e293b; color: #fff; border-color: #64748b; font-weight: 800; }
+.km-table thead th.km-per { background: #334155; }
+.km-table .km-lab { background: #e2e8f0; color: #0f172a; font-weight: 900; white-space: nowrap; overflow: hidden; }
+.km-table thead .km-lab { background: #1e293b; color: #fff; }
+.km-table .km-dstart { border-left: 0.6mm solid #0f172a !important; }
+.km-table .km-lunch { border-left: 0.35mm dashed #0f172a !important; }
+.km-table tr.km-gsep > * { border-top: 0.6mm solid #0f172a !important; }
+.km-table tbody tr:nth-child(even) .km-lab { background: #cbd5e1; }
+.km-c { padding: 0; }
+.km-it { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100%; line-height: 1.05; padding: 0 0.3mm; box-sizing: border-box; }
+.ks-color .km-it { background: var(--ks-bg); }
+.km-m { font-weight: 800; white-space: nowrap; overflow: hidden; max-width: 100%; }
+.km-s { color: #475569; font-weight: 600; white-space: nowrap; overflow: hidden; max-width: 100%; }
+.ks-mono .km-table thead th, .ks-mono .km-table thead .km-lab { background: #111; }
+.ks-mono .km-table thead th.km-per { background: #333; }
+.ks-mono .km-table .km-lab { background: #eee; }
+.ks-mono .km-table tbody tr:nth-child(even) .km-lab { background: #ddd; }
+.ks-color .km-it { background: none; }
+.ks-color .km-c .km-it + .km-it { border-top: 0.15mm dashed #94a3b8; }
+@media print { .km-c, .km-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

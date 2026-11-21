@@ -737,6 +737,8 @@
           <optgroup label="すぐ使える時間割表">
             <option value="sheet-class">★ クラス別（教室掲示用）</option>
             <option value="sheet-teacher">★ 先生別（配布用）</option>
+            <option value="sheet-all-class">★ 全校一覧（クラス）</option>
+            <option value="sheet-all-teacher">★ 全校一覧（先生）</option>
           </optgroup>
           <optgroup label="細かく調整する（従来）">
           <option value="class">全クラス</option>
@@ -826,15 +828,18 @@
       </div>
 
       <div id="sheet-opts" class="sheet-opts no-print">
-        <label class="so-f"><span>印刷するもの</span><select id="sheet-only" class="sel mini"></select></label>
-        <span class="so-f"><span>1ページに</span>
+        <label class="so-f so-one"><span>印刷するもの</span><select id="sheet-only" class="sel mini"></select></label>
+        <span class="so-f"><span>用紙</span>
+          <label class="so-r"><input type="radio" name="so-paper" data-sk="paper" value="A4">A4</label>
+          <label class="so-r"><input type="radio" name="so-paper" data-sk="paper" value="A3">A3</label></span>
+        <span class="so-f so-one"><span>1ページに</span>
           <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="1">1枚</label>
           <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="2">2枚</label>
           <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="4">4枚</label></span>
         <span class="so-f"><span>色</span>
           <label class="so-r"><input type="radio" name="so-color" data-sk="color" value="color">カラー</label>
           <label class="so-r"><input type="radio" name="so-color" data-sk="color" value="mono">白黒</label></span>
-        <span class="so-f"><span>科目名</span>
+        <span class="so-f so-one"><span>科目名</span>
           <label class="so-r" title="正式名がマスに入りきらない時だけ略称にします"><input type="radio" name="so-name" data-sk="name" value="auto">おまかせ</label>
           <label class="so-r"><input type="radio" name="so-name" data-sk="name" value="full">正式名</label>
           <label class="so-r"><input type="radio" name="so-name" data-sk="name" value="abbr">略称</label></span>
