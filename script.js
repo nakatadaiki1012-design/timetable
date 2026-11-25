@@ -5455,9 +5455,20 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
   })();
 
+  // 画面の切り替えボタン（表示・ツール・置き方）の印を、今の設定に合わせる。
+  // 以前は保存された設定（例: クラス表示）で開いても印は「教員」のままで、押しても教員表示に戻せなかった
+  function syncEditRadios() {
+    const want = { viewmode: state.ui.viewMode || 'teacher', tool: state.ui.tool, drop: state.ui.drop };
+    for (const name in want) {
+      if (!want[name]) continue;
+      const r = document.querySelector(`input[name="${name}"][value="${want[name]}"]`);
+      if (r && !r.checked) r.checked = true;
+    }
+  }
   function renderGrid() {
     const root = $('#grid'); if (!root) return;
     try { clearRelatedHighlight(); } catch (e) { } // 描き直し時に薄い表示が残らないように
+    try { syncEditRadios(); } catch (e) { }
     const mode = state.ui.viewMode;
     const keysAll = getAxisKeys(mode);
     const keys = keysAll.filter(rowMatchesFilter);
