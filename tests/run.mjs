@@ -99,7 +99,14 @@ await test('保存データが壊れても1つ前の控えから復旧する', a
   // 壊す操作と再読込を間を空けずに行う（間が空くと自動保存が動いて、壊したデータが正常なデータで上書きされ、試験にならない）
   await Promise.all([
     pg.waitForNavigation({ waitUntil: 'load' }),
-    pg.evaluate(() => { state.autosave.dirty = false; localStorage.setItem('ultimate_tt_state_v271', '{"broken'); location.reload(); }),
+    pg.evaluate(() => {
+      // 壊した直後に、ページを閉じる時の自動保存が正しいデータで書き戻すと試験にならないので、この試験の中だけ書き戻しを止める
+      const orig = Storage.prototype.setItem;
+      Storage.prototype.setItem = function (k, v) { if (k === 'ultimate_tt_state_v271' || k === 'ultimate_tt_state_v271__bak') return; return orig.call(this, k, v); };
+      state.autosave.dirty = false;
+      orig.call(localStorage, 'ultimate_tt_state_v271', '{"broken');
+      location.reload();
+    }),
   ]);
   await pg.waitForTimeout(800);
   const after = await counts(pg);
@@ -276,6 +283,24 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
     const n = (pdf.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
     assert(n === r.pages, `${c.type} 印刷のページ数が合わない（白紙ができている）: PDF ${n}ページ / 表 ${r.pages}ページ`);
   }
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
+await test('表示の切替（教員/クラス）: 開き直してもボタンと表が一致し、教員表示に戻せる', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(400);
+  await pg.click('input[name=viewmode][value=class]'); await pg.waitForTimeout(300);
+  await pg.evaluate(() => { state.ui.tool = 'erase'; state.autosave.dirty = true; window.dispatchEvent(new Event('beforeunload')); });
+  await pg.reload(); await pg.waitForTimeout(1000);
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(400);
+  const look = () => pg.evaluate(() => ({ saved: state.ui.viewMode, btn: document.querySelector('input[name=viewmode]:checked')?.value, head: document.querySelector('.timetable thead th')?.textContent.trim(), tool: document.querySelector('input[name=tool]:checked')?.value }));
+  const a = await look();
+  assert(a.saved === 'class' && a.btn === 'class' && a.head === 'クラス', '開き直した時、ボタンと表が合っていない: ' + JSON.stringify(a));
+  assert(a.tool === 'erase', '「消す」ツールのままなのに、ボタンの印が違う: ' + JSON.stringify(a));
+  await pg.click('input[name=viewmode][value=teacher]'); await pg.waitForTimeout(300);
+  const b = await look();
+  assert(b.saved === 'teacher' && b.head === '教員', '教員表示に戻せない: ' + JSON.stringify(b));
   assert(!pg.errs.length, pg.errs.join(' | '));
   await pg.close2();
 });
