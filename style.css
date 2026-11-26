@@ -7229,3 +7229,7 @@ body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
 .ks-color .km-it { background: none; }
 .ks-color .km-c .km-it + .km-it { border-top: 0.15mm dashed #94a3b8; }
 @media print { .km-c, .km-table th { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+@media print {
+  /* マトリクスは決めた幅を保つ（紙いっぱいに押し縮めると字がはみ出す）。紙に入らない分は印刷直前に全体を縮める */
+  .print-area table.t2.print-matrix { width: var(--mx-w) !important; }
+}
