@@ -305,6 +305,23 @@ await test('表示の切替（教員/クラス）: 開き直してもボタン�
   await pg.close2();
 });
 
+await test('マトリクス印刷（全クラス・全教員・全教室）: 文字が「…」で切れない', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-print').click()); await pg.waitForTimeout(400);
+  for (const t of ['matrix-class', 'matrix-teacher', 'matrix-room']) {
+    await pg.selectOption('#print-type', t); await pg.waitForTimeout(500);
+    const r = await pg.evaluate(() => {
+      const els = [...document.querySelectorAll('.print-matrix td *, .print-matrix tbody th')].filter(e => e.children.length === 0 && e.textContent.trim());
+      const cut = els.filter(e => e.scrollWidth > e.clientWidth + 1 || /…$/.test(e.textContent.trim()));
+      return { n: els.length, cut: cut.length, ex: cut.slice(0, 3).map(e => e.textContent.trim()) };
+    });
+    assert(r.n > 0, t + ' に文字がない');
+    assert(r.cut === 0, `${t} で切れている文字がある: ` + JSON.stringify(r));
+  }
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
 await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {
   const pg = await openApp();
   await pg.click('#tab-edit'); await pg.waitForTimeout(300);
