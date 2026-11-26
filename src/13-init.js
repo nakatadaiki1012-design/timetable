@@ -71,7 +71,7 @@
       // イデア読込の同時展開(相乗り)配置はrawRowsに完全表現できないため、
       // 再構築で失われる可能性がある場合は確認する。
       const hasSimul = Object.values(state.items || {}).some(it => it && it.simul);
-      const doReflect = () => { reflectRawToItems(); switchTab('edit'); };
+      const doReflect = () => { reflectRawToItems({ keepSelection: true }); switchTab('edit'); };
       if (hasSimul) {
         showModalHTML('作成画面へ反映',
           '<div style="line-height:1.7">データ入力の内容から時間割を再構築します。<br>' +
@@ -1354,6 +1354,7 @@
     if (!Object.keys(state.items).length) reflectRawToItems(); // build initial
     bindEvents();
     renderSnapshotList();
+    try { markRawBaseline(); } catch (e) { } // 起動時の内容を基準にする（データ登録の画面から始まる場合のため）
     switchTab(state.tab || 'input');
     updateAutosaveUI();
     // v49: 初期進捗バー更新

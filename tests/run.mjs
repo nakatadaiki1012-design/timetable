@@ -305,6 +305,33 @@ await test('表示の切替（教員/クラス）: 開き直してもボタン�
   await pg.close2();
 });
 
+await test('担当替え: 作成画面でもデータ登録でも、配置が消えず元に戻せる', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(400);
+  const where = () => pg.evaluate(() => Object.keys(state.items).filter(i => state.placements[i]?.day).map(i => { const it = state.items[i], p = state.placements[i]; return it.subj + '|' + it.cls.join() + '|' + p.day + p.period; }).sort().join(';'));
+  const w0 = await where();
+  // 週2コマ以上ある授業を1つ選ぶ
+  const pick = await pg.evaluate(() => { const by = {}; for (const i in state.items) { const it = state.items[i]; if (state.placements[i]?.day && it.cls.length === 1) (by[it.srcId] ||= []).push(i); } const k = Object.keys(by).find(k => by[k].length >= 2); return by[k][1]; });
+  const other = await pg.evaluate((id) => Object.keys(state.teacherCfg).find(t => !state.items[id].teas.includes(t)), pick);
+  // 作成画面: このコマだけ
+  await pg.locator(`.timetable .lesson[data-id="${pick}"]`).first().click(); await pg.waitForTimeout(200);
+  await pg.click('#prop-reassign'); await pg.waitForTimeout(200);
+  await pg.fill('#ra-teas', other); await pg.check('input[name=ra-scope][value=one]'); await pg.click('#modal-ok'); await pg.waitForTimeout(400);
+  const r1 = await pg.evaluate((t) => { const id = state.ui.selectedId; return { teas: state.items[id]?.teas, row: (state.rawRows.find(r => r._id === state.items[id]?.srcId) || {}).tea }; }, other);
+  assert(r1.teas && r1.teas.join() === other && r1.row === other, '作成画面で担当が変わらない: ' + JSON.stringify(r1));
+  assert(await where() === w0, '担当替えで配置が変わった');
+  await pg.keyboard.press('Control+z'); await pg.waitForTimeout(300);
+  assert(await where() === w0 && await pg.evaluate((id) => !!state.items[id], pick), '元に戻すで元に戻らない');
+  // データ登録で書き換え、反映ボタンを押さずに作成画面へ
+  await pg.evaluate(() => document.getElementById('tab-input').click()); await pg.waitForTimeout(300);
+  await pg.evaluate(({ id, t }) => { const r = state.rawRows.find(r => r._id === state.items[id].srcId); r.tea = t; }, { id: pick, t: other });
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(400);
+  assert(await pg.evaluate(({ id, t }) => state.items[id]?.teas.join() === t, { id: pick, t: other }), 'データ登録の担当替えが作成画面に反映されない');
+  assert(await where() === w0, 'データ登録の担当替えで配置が変わった');
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
 await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {
   const pg = await openApp();
   await pg.click('#tab-edit'); await pg.waitForTimeout(300);

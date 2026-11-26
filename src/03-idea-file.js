@@ -1255,6 +1255,7 @@
           state.teacherCfg = parsed.teacherCfg;
           state.items = normalizeItems(parsed.items);
           state.placements = parsed.placements || {};
+          try { markRawBaseline(); } catch (e) { }
           // 固定として取込: 全配置をロック
           if (lockAll) { for (const id in state.placements) { const p = state.placements[id]; if (p && p.day) p.locked = true; } }
           state.snapshots = [];
@@ -1351,6 +1352,7 @@
     sanitizeState(opts.reason === 'cloudOpen' ? 'クラウドから開く' : 'プロジェクト読込');
     invalidateIndex();
     markDirty(opts.reason || 'projectImport');
+    try { markRawBaseline(); } catch (e) { } // 読み込んだ内容を基準にする（読込そのものを「変更」と取り違えない）
     rerenderAll();
     saveNow();
   }

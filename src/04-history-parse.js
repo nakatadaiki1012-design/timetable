@@ -235,8 +235,12 @@
     return '';
   }
 
-  function reflectRawToItems() {
-    pushHistory('reflect');
+  // データ登録の行から作成画面のコマを作り直す。行が同じならコマの番号も同じなので、配置・ロックはそのまま残る
+  //   opts.history=false … 呼び出し側で「元に戻す」の記録を済ませている時
+  //   opts.keepSelection … 選んでいたコマが残っていれば選択も残す
+  function reflectRawToItems(opts = {}) {
+    if (opts.history !== false) pushHistory('reflect');
+    const keepSel = opts.keepSelection ? state.ui.selectedId : null;
     const items = {};
     const placementsOld = state.placements || {};
     const newPlacements = {};
@@ -279,7 +283,41 @@
     }
     state.items = items;
     state.placements = newPlacements;
-    state.ui.selectedId = null; state.ui.selectedFrom = '';
+    if (!(keepSel && items[keepSel])) { state.ui.selectedId = null; state.ui.selectedFrom = ''; }
+    invalidateIndex();
+    _rawSigAtReflect = rawRowsSig();
     markDirty('reflectRawToItems');
+  }
+  // データ登録の内容の「指紋」。変わったかどうかの判定に使う
+  let _rawSigAtReflect = null;
+  function rawRowsSig() {
+    try { return JSON.stringify((state.rawRows || []).map(r => [r._id, r.cls, r.subj, r.tea, r.room, r.count, r.span, r.dbl, r.parallel, r.simul, r.realSubj])); } catch (e) { return ''; }
+  }
+  // データ登録の画面に入った時の内容を基準として覚える（ここから変わった分だけを反映する）
+  function markRawBaseline() { _rawSigAtReflect = rawRowsSig(); }
+  // データ登録で変えた内容が、まだ作成画面に反映されていなければ反映する（配置・ロック・選択はそのまま）
+  function autoReflectIfChanged() {
+    const sig = rawRowsSig();
+    if (_rawSigAtReflect === null || sig === _rawSigAtReflect) return false;
+    // 反映すると外れる配置があるか先に数える（行を消した・コマ数を減らした・CSVを読み直した時など）
+    const newIds = new Set();
+    for (const r of state.rawRows || []) {
+      if (!splitList(r.cls).length || !(r.subj || '').trim()) continue;
+      const n = Math.max(1, parseInt(r.count || 1, 10) || 1);
+      for (let k = 1; k <= n; k++) newIds.add(`${ensureRowId(r)}__${k}`);
+    }
+    const lost = Object.keys(state.placements || {}).filter(id => state.placements[id]?.day && !newIds.has(id)).length;
+    const doIt = () => {
+      const before = Object.values(state.placements || {}).filter(p => p && p.day).length;
+      reflectRawToItems({ keepSelection: true });
+      const after = Object.values(state.placements || {}).filter(p => p && p.day).length;
+      flash(before === after ? 'データ登録の変更を作成画面に反映しました（配置はそのまま）' : `データ登録の変更を反映しました（配置 ${before}→${after}コマ）`, 5000);
+      try { rerenderAll(); } catch (e) { }
+    };
+    if (!lost) { doIt(); return true; }
+    // 配置が外れる時は黙って進めず確かめる（「しない」を選んでも、データ登録の「作成画面へ反映」でいつでも反映できる）
+    _rawSigAtReflect = sig;
+    showModalHTML('データ登録の変更を反映しますか？', `<div style="line-height:1.8">反映すると、作成画面に置いてある <b>${lost} コマ</b>が外れて在庫に戻ります。<br><span style="color:#64748b">（行を消した・コマ数を減らした・CSVを読み直した、など）</span><br><br>「反映する」… 作成画面を新しいデータに合わせる<br>「今のまま」… 作成画面はそのまま（後でデータ登録の「作成画面へ反映」からいつでも反映できます）</div>`, doIt, '反映する', '今のまま');
+    return true;
   }
 
