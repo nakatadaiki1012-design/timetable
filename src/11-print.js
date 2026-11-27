@@ -300,7 +300,7 @@
       const kind = type === 'matrix-teacher' ? 'teacher' : type === 'matrix-class' ? 'class' : 'room';
       const keys = getAxisKeys(kind);
       const matrixCellH = Math.max(24, Math.round(cellH * 0.7));
-      area.innerHTML = buildMatrixHTML(kind, keys, idx, maxP, opt, layout, matrixCellH, fontSize);
+      area.innerHTML = buildMatrixHTML(kind, keys, idx, maxP, opt, layout, matrixCellH, fontSize, Math.max(30, Math.min(120, Math.round(colW * 0.6))));
       initPrintResize();
       return;
     }

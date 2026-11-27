@@ -994,6 +994,17 @@
 
     // print
     $('#btn-print').onclick = () => window.print();
+    // 印刷する時、全クラス／全教員マトリクスが紙より横に長ければ、表全体を同じ割合で縮めて紙の幅に収める（右側が切れないように）
+    window.addEventListener('beforeprint', () => {
+      const orient = $('#print-page-orient')?.value || 'landscape';
+      const paperPx = (orient === 'landscape' ? 277 : 190) * 96 / 25.4; // A4 の印刷できる幅（左右の余白を除く）
+      document.querySelectorAll('.print-matrix-wrap').forEach(w => {
+        const t = w.querySelector('table'); if (!t) return;
+        const tw = parseFloat(t.style.width) || t.scrollWidth;
+        w.style.zoom = String(Math.min(1, paperPx / tw));
+      });
+    });
+    window.addEventListener('afterprint', () => document.querySelectorAll('.print-matrix-wrap').forEach(w => { w.style.zoom = ''; }));
     $('#btn-pdf-export')?.addEventListener('click', () => {
       // 掲示用の時間割表は、ブラウザの印刷から「PDFに保存」する方が文字がくっきりして速い
       if (document.getElementById('view-print')?.classList.contains('sheet-mode')) { flash('印刷の画面で、送り先（プリンター）を「PDFに保存」にしてください', 6000); setTimeout(() => window.print(), 300); return; }

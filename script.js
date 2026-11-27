@@ -13811,7 +13811,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       const kind = type === 'matrix-teacher' ? 'teacher' : type === 'matrix-class' ? 'class' : 'room';
       const keys = getAxisKeys(kind);
       const matrixCellH = Math.max(24, Math.round(cellH * 0.7));
-      area.innerHTML = buildMatrixHTML(kind, keys, idx, maxP, opt, layout, matrixCellH, fontSize);
+      area.innerHTML = buildMatrixHTML(kind, keys, idx, maxP, opt, layout, matrixCellH, fontSize, Math.max(30, Math.min(120, Math.round(colW * 0.6))));
       initPrintResize();
       return;
     }
@@ -16300,17 +16300,19 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
   // Build full matrix: rows=all keys (teachers or classes), cols=day×period
   // Optimized for A3 single-sheet output with adjustable cell size
-  function buildMatrixHTML(kind, keys, idx, maxP, opt, layout, cellH = 32, fontSize = 9) {
+  function buildMatrixHTML(kind, keys, idx, maxP, opt, layout, cellH = 32, fontSize = 9, colWidth = 0) {
     const align = state.ui.printAlign || 'center';
     const fontFam = state.ui.printFontFamily || 'system';
     const fontFamilyCSS = _printFontCSS(fontFam);
-    const colW = Math.max(28, clamp(cellH, 28, 80));
+    // 列の幅は印刷画面の「列幅」で変えられる（以前は行の高さから決めていて、狭すぎて字が「…」になった）
+    const colW = colWidth || Math.max(28, clamp(cellH, 28, 80));
     const rowH = cellH;
     const mFS = Math.max(7, fontSize - 1);
     const nameW = 72;
     // Build header
-    let html = `<div style="overflow-x:auto;font-size:${mFS}px;font-family:${fontFamilyCSS}">`;
-    html += `<table class="t2 print-matrix" style="table-layout:fixed;width:${nameW + DAYS.length * maxP * colW + 20}px;font-family:${fontFamilyCSS}">`;
+    let html = `<div class="print-matrix-wrap" style="overflow-x:auto;font-size:${mFS}px;font-family:${fontFamilyCSS}">`;
+    const tableW = nameW + DAYS.length * maxP * colW + 20;
+    html += `<table class="t2 print-matrix" style="table-layout:fixed;width:${tableW}px;--mx-w:${tableW}px;font-family:${fontFamilyCSS}">`;
     html += `<thead>`;
     // Row 1: name + day headers
     html += `<tr><th rowspan="2" style="width:${nameW}px;min-width:${nameW}px;vertical-align:middle;text-align:center;background:#e8f0fe">${kind === 'teacher' ? '教員' : kind === 'class' ? 'クラス' : kind === 'room' ? '教室' : '対象'}</th>`;
@@ -16329,9 +16331,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     }
     html += `</tr></thead><tbody>`;
     // Data rows: one per key (teacher or class)
+    // 文字は「…」で切らない。入らない時は文字を小さくし、それでも入らなければ折り返す
+    const tLen = (t) => [...String(t)].reduce((a, c) => a + (/[ -~｡-ﾟ]/.test(c) ? 0.55 : 1), 0);
+    const fitPx = (t, base, w, min) => Math.max(min, Math.min(base, Math.floor((w * 0.94) / Math.max(1, tLen(t)) * 10) / 10));
+    const shortTea = (ts) => ts.length > 2 ? `${ts[0]}他${ts.length - 1}` : ts.join('・');
     for (const key of keys) {
-      const shortKey = key.length > 8 ? key.slice(0, 7) + '…' : key;
-      html += `<tr><th style="height:${rowH}px;width:${nameW}px;min-width:${nameW}px;font-size:${mFS}px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;background:#fafcff;padding:1px 4px;text-align:left" title="${escapeHtml(key)}">${escapeHtml(shortKey)}</th>`;
+      const keyFs = fitPx(key, mFS + 1, nameW - 8, 7);
+      html += `<tr><th style="height:${rowH}px;width:${nameW}px;min-width:${nameW}px;font-size:${keyFs}px;line-height:1.15;word-break:break-all;background:#fafcff;padding:1px 4px;text-align:left" title="${escapeHtml(key)}">${escapeHtml(key)}</th>`;
       for (const day of DAYS) {
         for (let p = 1; p <= maxP; p++) {
           const overMaxP = p > maxPeriod(day);
@@ -16339,18 +16345,30 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           // 【4】2連の2コマ目も同じ授業を印刷する
           const ids = idsInCellForRow(kind, key, day, p, idx);
           if (!ids.length) { html += `<td style="height:${rowH}px;width:${colW}px;min-width:${colW}px"></td>`; continue; }
+          const innerW = colW - 9; // マスの余白・色の帯の分を引く
+          const many = ids.length > 1 ? 0.85 : 1;
           const cells = ids.map(id => {
             const it = state.items[id]; if (!it) return '';
             const scfg = state.subjectCfg[it.subjKey] || {};
-            const abbr = scfg.abbr || it.subj || '';
+            // 科目名は読みやすい略称で（数学Ⅰ11 → 数Ⅰ、日世226 → 選択）。クラスの表では「1年」を省く
+            let sj = { main: scfg.abbr || it.subj || '' };
+            try { sj = sheetSubj(it, 'abbr'); } catch (e) { }
+            let abbr = sj.isChoice ? '選択' : sj.main;
+            if (kind === 'class' && !sj.isChoice) abbr = abbr.replace(/^[1-6１-６]\s*年?\s*(?=[^\d\s・-]{2})/, '');
+            let main = abbr;
+            const line2parts = [];
+            if (kind === 'class') { if (opt.showTea && it.teas?.length) line2parts.push(shortTea(it.teas.map(t => (state.teacherCfg[t]?.abbr || t)))); }
+            else {
+              // 教員・教室の表では、大きくクラス、小さく科目
+              if (it.cls?.length) { main = compactClsLabel(it.cls); line2parts.push(abbr); }
+              if (kind === 'room' && opt.showTea && it.teas?.length) line2parts.push(shortTea(it.teas));
+            }
+            if (opt.showRoom && kind !== 'room' && it.rooms?.length) { const rs = it.rooms.filter(r => !(it.cls || []).includes(r)); if (rs.length) line2parts.push(rs.join('・')); }
             const color = scfg.color || pickColor(it.subjKey) || '#e2e8f0';
             const bg = hexWithAlpha(color, 0.28);
-            const line2parts = [];
-            if (opt.showTea && kind !== 'teacher' && it.teas?.length) line2parts.push(it.teas.map(t => (state.teacherCfg[t]?.abbr || t)).join(','));
-            if (opt.showCls && kind !== 'class' && it.cls?.length) line2parts.push(it.cls.join(','));
-            if (opt.showRoom && it.rooms?.length) line2parts.push(it.rooms.join(','));
-            const sub2 = line2parts.length ? `<div style="font-size:${mFS - 2}px;color:#475569;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(line2parts.join(' '))}</div>` : '';
-            return `<div style="background:${bg};border-left:2px solid ${color};border-radius:2px;padding:1px 2px;margin-bottom:1px;overflow:hidden;text-align:${align};font-family:${fontFamilyCSS}" title="${escapeHtml(abbr)}"><div style="font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${escapeHtml(abbr.slice(0, 7))}</div>${sub2}</div>`;
+            const fsMain = fitPx(main, mFS + 1, innerW, 6.5) * many;
+            const sub2 = line2parts.map(l => `<div style="font-size:${(fitPx(l, mFS - 1, innerW, 6) * many).toFixed(1)}px;color:#475569;line-height:1.1;word-break:break-all">${escapeHtml(l)}</div>`).join('');
+            return `<div style="background:${bg};border-left:2px solid ${color};border-radius:2px;padding:1px 2px;margin-bottom:1px;text-align:${align};font-family:${fontFamilyCSS}" title="${escapeHtml((it.realSubj || it.subj || '') + ' ' + (it.teas || []).join('・'))}"><div style="font-weight:800;font-size:${fsMain.toFixed(1)}px;line-height:1.1;word-break:break-all">${escapeHtml(main)}</div>${sub2}</div>`;
           }).join('');
           html += `<td style="height:${rowH}px;width:${colW}px;min-width:${colW}px;padding:1px;vertical-align:top">${cells}</td>`;
         }
@@ -17518,6 +17536,17 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
 
     // print
     $('#btn-print').onclick = () => window.print();
+    // 印刷する時、全クラス／全教員マトリクスが紙より横に長ければ、表全体を同じ割合で縮めて紙の幅に収める（右側が切れないように）
+    window.addEventListener('beforeprint', () => {
+      const orient = $('#print-page-orient')?.value || 'landscape';
+      const paperPx = (orient === 'landscape' ? 277 : 190) * 96 / 25.4; // A4 の印刷できる幅（左右の余白を除く）
+      document.querySelectorAll('.print-matrix-wrap').forEach(w => {
+        const t = w.querySelector('table'); if (!t) return;
+        const tw = parseFloat(t.style.width) || t.scrollWidth;
+        w.style.zoom = String(Math.min(1, paperPx / tw));
+      });
+    });
+    window.addEventListener('afterprint', () => document.querySelectorAll('.print-matrix-wrap').forEach(w => { w.style.zoom = ''; }));
     $('#btn-pdf-export')?.addEventListener('click', () => {
       // 掲示用の時間割表は、ブラウザの印刷から「PDFに保存」する方が文字がくっきりして速い
       if (document.getElementById('view-print')?.classList.contains('sheet-mode')) { flash('印刷の画面で、送り先（プリンター）を「PDFに保存」にしてください', 6000); setTimeout(() => window.print(), 300); return; }
