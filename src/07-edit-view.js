@@ -550,6 +550,7 @@
             menu.push({ label: 'このコマを在庫へ', act: 'cell_to_stock', on: () => toStock(any) });
             menu.push({ label: 'このコマをロック/解除', act: 'cell_lock', on: () => toggleLock(any) });
             menu.push({ label: 'このコマの提案', act: 'cell_sug', on: () => openPropSuggestions(any) });
+            menu.push({ label: '👤 担当の先生を変える', act: 'cell_reassign', on: () => openReassignDialog(any) });
             menu.push({ sep: true });
           }
           if (state.ui.selectedId) {
@@ -969,6 +970,7 @@
         { label: '在庫へ', act: 'to_stock', on: () => toStock(id) },
         { label: (plc.locked ? 'ロック解除' : 'ロック'), act: 'lock', on: () => toggleLock(id) },
         { label: '配置/移動の提案', act: 'sug', on: () => openPropSuggestions(id) },
+        { label: '👤 担当の先生を変える', act: 'reassign', on: () => openReassignDialog(id) },
         { label: 'コピー（複製）', act: 'copy', on: () => copyItem(id) },
         { sep: true },
         { label: 'Ctrl+クリックで複数選択', muted: true },

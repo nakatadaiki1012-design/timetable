@@ -147,6 +147,9 @@
      Rendering
   ======================= */
   function switchTab(tab) {
+    // データ登録で担当替えなどをした後、反映ボタンを押さずに別の画面へ移っても、変更が自動で反映されるように
+    if (state.tab === 'input' && tab !== 'input') { try { autoReflectIfChanged(); } catch (e) { console.error('自動反映', e); } }
+    if (tab === 'input' && state.tab !== 'input') { try { markRawBaseline(); } catch (e) { } }
     state.tab = tab;
     // 【7】現在のタブを body に記録（作成画面以外では下の操作バーを隠すため）
     document.body.dataset.tab = tab;

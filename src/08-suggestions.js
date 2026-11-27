@@ -820,15 +820,120 @@
       <div class="slot-stat hard-stat"><span class="slot-label">△ 難</span><span class="slot-count">${hardCount}</span></div>
     </div>
     <div class="prop-actions">
+      <button class="sec" id="prop-reassign" title="この授業の担当の先生を変えます（配置はそのまま）">👤 担当替え</button>
       <button class="sec" id="prop-lock">${plc ? (plc.locked ? '🔓 ロック解除' : '🔒 ロック') : '🔒 ロック'}</button>
       <button class="danger" id="prop-stock">📦 在庫へ</button>
     </div>
     <div class="suggest" id="suggest-box"></div>
   `;
     $('#prop-lock').onclick = () => { if (plc) toggleLock(id); else flash('未配置'); };
+    $('#prop-reassign').onclick = () => openReassignDialog(id);
     $('#prop-stock').onclick = () => toStock(id);
   }
 
+
+  /* =======================
+     担当替え（作成画面の中で、コマの担当の先生を変える）
+     データ登録の行を書き換えてからコマを作り直す。配置・ロック・選択・画面の位置はそのまま。
+     「このコマだけ」の時は行を2つに分け、他のコマの配置がずれないように番号を付け替える。
+  ======================= */
+  function openReassignDialog(id) {
+    const it = state.items[id]; if (!it) return;
+    const row = (state.rawRows || []).find(r => r._id === it.srcId);
+    if (!row) { flash('このコマはデータ登録の行と結びついていないため、ここでは担当を変えられません'); return; }
+    const sibs = Object.keys(state.items).filter(k => state.items[k].srcId === it.srcId);
+    const scfg = state.subjectCfg[it.subjKey] || {};
+    const name = `${scfg.abbr || it.subj}［${it.cls.join(',')}］`;
+    const teachers = Object.keys(state.teacherCfg || {}).sort((a, b) => a.localeCompare(b, 'ja'));
+    const html = `<div style="line-height:1.7">
+      <div style="margin-bottom:8px">授業: <b>${escapeHtml(name)}</b>　今の担当: <b>${escapeHtml(it.teas.join('、') || '（なし）')}</b></div>
+      <label style="display:block;font-weight:700;margin-bottom:4px">新しい担当の先生（複数の時は「、」で区切る）</label>
+      <input id="ra-teas" type="text" list="ra-tea-list" value="${escapeAttr(it.teas.join('、'))}" style="width:100%;padding:6px 8px;border:1px solid #cbd5e1;border-radius:8px;font-size:14px" autocomplete="off">
+      <datalist id="ra-tea-list">${teachers.map(t => `<option value="${escapeAttr(t)}">`).join('')}</datalist>
+      ${sibs.length > 1 ? `<div style="margin-top:10px">
+        <label style="display:block"><input type="radio" name="ra-scope" value="all" checked> この授業の全部（週${sibs.length}コマ）の担当を変える</label>
+        <label style="display:block"><input type="radio" name="ra-scope" value="one"> このコマだけ変える${state.placements[id]?.day ? `（${DAYJP[state.placements[id].day]}${state.placements[id].period}限）` : ''}</label></div>` : ''}
+      <div id="ra-check" style="margin-top:10px;font-size:12px;color:#64748b"></div>
+      <div style="margin-top:6px;font-size:12px;color:#64748b">配置はそのままです。新しい先生が同じ時間に別の授業を持っている時は、重複として赤く表示されます。</div>
+    </div>`;
+    // 入力内容は変わるたびに控えておく（窓を閉じると入力欄が消えるので、閉じた後には読めない）
+    let cur = { teas: it.teas.slice(), scope: 'all' };
+    const read = () => {
+      const inp = document.getElementById('ra-teas');
+      if (inp) cur = {
+        teas: splitList(String(inp.value || '').replace(/[・]/g, ',')),
+        scope: document.querySelector('input[name="ra-scope"]:checked')?.value || 'all',
+      };
+      return cur;
+    };
+    // 入力に合わせて「重複が何コマ出るか」を先に見せる
+    const check = () => {
+      const box = document.getElementById('ra-check'); if (!box) return;
+      const { teas, scope } = read();
+      const target = scope === 'one' ? [id] : sibs;
+      const idx = buildIndex();
+      const clash = [];
+      for (const k of target) {
+        const p = state.placements[k]; if (!p || !p.day) continue;
+        const sp = state.items[k].span || 1;
+        for (const t of teas) for (let d = 0; d < sp; d++) {
+          const occ = (idx.tea?.[t]?.[p.day]?.[p.period + d] || []).filter(x => x !== k && !(state.items[k].parallel && state.items[x]?.parallel));
+          if (occ.length) clash.push(`${t} ${DAYJP[p.day]}${p.period + d}限`);
+        }
+      }
+      const unknown = teas.filter(t => !state.teacherCfg[t]);
+      box.innerHTML = (teas.length ? '' : '<span style="color:#b91c1c">先生を入力してください</span>')
+        + (clash.length ? `<span style="color:#b91c1c">⚠ 重複が ${clash.length} か所できます: ${escapeHtml([...new Set(clash)].slice(0, 4).join('、'))}${clash.length > 4 ? ' など' : ''}</span>` : (teas.length ? '<span style="color:#047857">✓ 重複はできません</span>' : ''))
+        + (unknown.length ? `<br><span style="color:#b45309">「${escapeHtml(unknown.join('、'))}」は新しい先生として登録されます</span>` : '');
+    };
+    // この窓は改行をそのまま表示するので、HTMLの改行・字下げを詰めて入れる（大きなすき間ができないように）
+    showModalHTML('👤 担当の先生を変える', html.replace(/>\s*\n\s*</g, '><').replace(/\n\s*/g, ' '), () => {
+      const { teas, scope } = cur;
+      if (!teas.length) { flash('先生が入力されていません'); return; }
+      applyReassign(id, teas, scope);
+    }, '変える', 'キャンセル', () => {
+      const inp = document.getElementById('ra-teas');
+      if (inp) { inp.addEventListener('input', check); inp.focus(); inp.select(); }
+      document.querySelectorAll('input[name="ra-scope"]').forEach(r => r.addEventListener('change', check));
+      check();
+    });
+  }
+  function applyReassign(id, teas, scope) {
+    const it = state.items[id]; if (!it) return;
+    const row = (state.rawRows || []).find(r => r._id === it.srcId); if (!row) return;
+    pushHistory('reassign');
+    const teaStr = teas.join(',');
+    let selectAfter = id;
+    const n = Math.max(1, parseInt(row.count || 1, 10) || 1);
+    if (scope === 'one' && n > 1) {
+      // 行を分ける: 元の行は1コマ減らし、このコマだけの行を新しく作る
+      const k0 = it.countIdx || parseInt(String(id).split('__').pop(), 10) || 1;
+      const newRow = { ...row, _id: undefined, count: 1, tea: teaStr, teaAbbr: '' };
+      delete newRow._id; ensureRowId(newRow);
+      const pos = state.rawRows.indexOf(row);
+      state.rawRows.splice(pos + 1, 0, newRow);
+      row.count = n - 1;
+      // 配置の番号を付け替える（このコマ→新しい行、後ろのコマ→1つ前の番号）
+      const P = state.placements, old = {};
+      for (let k = 1; k <= n; k++) old[k] = P[`${row._id}__${k}`];
+      P[`${newRow._id}__1`] = old[k0] || null;
+      for (let k = k0; k < n; k++) P[`${row._id}__${k}`] = old[k + 1] || null;
+      delete P[`${row._id}__${n}`];
+      selectAfter = `${newRow._id}__1`;
+    } else {
+      row.tea = teaStr;
+    }
+    // 教員略は新しい先生の名前に合わせ直す（古い先生の略が残らないように）
+    if (row.teaAbbr !== undefined && scope !== 'one') row.teaAbbr = '';
+    reflectRawToItems({ history: false });
+    if (state.items[selectAfter]) { state.ui.selectedId = selectAfter; state.ui.selectedFrom = 'grid'; }
+    markDirty('reassign');
+    rerenderAll(); broadcastState();
+    const target = Object.keys(state.items).filter(k => state.items[k].srcId === state.items[selectAfter]?.srcId);
+    let bad = 0;
+    for (const k of target) { const p = state.placements[k]; if (p && p.day) bad += validatePlacement(k, p.day, p.period, 'safe', null).blocks.length ? 1 : 0; }
+    flash(`担当を「${teas.join('、')}」に変えました` + (bad ? `。重複が ${bad} コマあります（赤いコマ）。提案から動かせます` : '（重複なし）'), 6000);
+  }
 
   // v63.4: 空きセルをダブルクリック→「ここに来れるコマ」の提案を表示
   function openSlotSuggestions(day, p) {
