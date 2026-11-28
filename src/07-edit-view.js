@@ -257,30 +257,43 @@
   // コマの文字を「1行・はみ出さない最大サイズ」に合わせる。
   // まとめて読み取ってからまとめて書き込み、再計算(レイアウト)を最小限にする。
   // コマの文字を、マスの幅に入る大きさに合わせる。
-  // 前に合わせた時と「文字」と「マスの幅」が同じコマは測り直さない（全コマを毎回測り直すと重い）
+  // ・「文字」と「マスの幅」が前と同じコマは何もしない
+  // ・一度測ったコマは「文字の本来の幅」を覚えておき、マスの幅が変わっても計算だけで合わせ直す
+  //   （以前は幅が変わるたびに全コマの大きさを戻して測り直していて、表全体の配置計算が余分に2回走っていた）
   function fitLessonText() {
     const root = document.getElementById('grid'); if (!root) return;
     __fitOnly = null;
     const els = root.querySelectorAll('.timetable td .lesson .l1 .subj, .timetable td .lesson .l2');
     const MIN = 7;
-    const todo = [];
+    const wrap = document.getElementById('grid-wrapper');
+    // 文字の基準の大きさが変わる設定（密度・文字の大きさ・表示の種類）が変わったら、覚えた値は使わない
+    const epoch = (wrap?.dataset.dl || '') + '|' + (state.ui.fontStep || 0) + '|' + (state.ui.viewMode || '') + '|' + (document.body.className || '');
+    const writes = [], redo = [];
+    // 読むだけ（ここでは何も書き換えない。書き換えと読み取りを混ぜると、そのたびに配置計算が走る）
     for (const el of els) {
       const cw = el.clientWidth;
-      const key = cw + '|' + el.textContent;
+      const text = el.textContent;
+      const key = epoch + '|' + cw + '|' + text;
       if (el.__fk === key) continue;
-      el.__fkNext = key; todo.push(el);
+      if (!cw) continue;
+      const known = el.__ep === epoch && el.__txt === text;
+      if (known && el.__tw) {                       // 文字の本来の幅を知っている → 計算だけ
+        writes.push([el, cw >= el.__tw - 0.5 ? '' : Math.max(MIN, Math.floor(el.__fs0 * (cw / el.__tw) * 10) / 10)]);
+      } else if (known && el.__fitW && cw >= el.__fitW) { // 前より広くなっただけで、前も入っていた → そのまま
+      } else if (!el.style.fontSize) {                // まだ大きさを変えていない → その場で測れる
+        const sw = el.scrollWidth;
+        el.__ep = epoch; el.__txt = text;
+        if (sw > cw + 0.5) {
+          el.__fs0 = parseFloat(getComputedStyle(el).fontSize) || 11; el.__tw = sw; el.__fitW = 0;
+          writes.push([el, Math.max(MIN, Math.floor(el.__fs0 * (cw / sw) * 10) / 10)]);
+        } else { el.__tw = 0; el.__fitW = cw; }
+      } else { redo.push(el); continue; }             // 設定が変わった等 → 大きさを戻して測り直す
+      el.__fk = key;
     }
-    if (!todo.length) return;
-    for (const el of todo) if (el.style.fontSize) el.style.fontSize = '';
-    const reads = [];
-    for (const el of todo) {
-      const sw = el.scrollWidth, cw = el.clientWidth;
-      el.__fk = el.__fkNext;
-      if (!cw || sw <= cw + 0.5) continue;
-      reads.push([el, parseFloat(getComputedStyle(el).fontSize) || 11, cw / sw]);
-    }
-    for (const [el, fs, r] of reads) {
-      el.style.setProperty('font-size', Math.max(MIN, Math.floor(fs * r * 10) / 10) + 'px', 'important');
+    for (const [el, fs] of writes) { if (fs === '') el.style.fontSize = ''; else el.style.setProperty('font-size', fs + 'px', 'important'); }
+    if (redo.length) {
+      for (const el of redo) { el.style.fontSize = ''; el.__ep = null; el.__fk = null; }
+      queueFitLessonText(); // 次の描画の時に、戻した大きさで測り直す
     }
   }
   let __fitQueued = false;
@@ -436,16 +449,19 @@
       // 既存のhint解除
       live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
       td.classList.add('drop-hint');
-      // 列全体ハイライト（同じ曜日×時限の全行）
-      const day = td.dataset.day, p = td.dataset.p;
-      live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
-      live.querySelectorAll(`td[data-day="${day}"][data-p="${p}"]`).forEach(el => el.classList.add('col-drag-over'));
+      // 列全体の色付け: 列のマス全部（60個以上）に印を付けると動かすたびに描き直しが重いので、色の帯を1本動かす
+      let band = live.querySelector(':scope > .col-band');
+      if (!band) { band = document.createElement('div'); band.className = 'col-band'; live.appendChild(band); }
+      const r = td.getBoundingClientRect(), lr = live.getBoundingClientRect();
+      band.style.width = r.width + 'px';
+      band.style.transform = `translateX(${Math.round(r.left - lr.left)}px)`;
+      band.style.display = 'block';
     };
     live.ondragleave = (ev) => {
       // only clear if leaving the grid entirely
       if (!live.contains(ev.relatedTarget)) {
         live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-        live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+        { const b0 = live.querySelector(':scope > .col-band'); if (b0) b0.style.display = 'none'; }
       }
     };
     // ドラッグをやめた時（Escで取り消した・表の外で離した）も、列の色付けを消す。以前は残ったままになった
@@ -453,13 +469,13 @@
       live._dragEndBound = true;
       window.addEventListener('dragend', () => {
         live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-        live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+        { const b0 = live.querySelector(':scope > .col-band'); if (b0) b0.style.display = 'none'; }
       });
     }
     live.ondrop = (ev) => {
       ev.preventDefault();
       live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-      live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+      { const b0 = live.querySelector(':scope > .col-band'); if (b0) b0.style.display = 'none'; }
       const td = ev.target.closest('td[data-day][data-p]');
       if (!td) return;
       const dropId = ev.dataTransfer.getData('text/plain') || ev.dataTransfer.getData('id') || window._currentDragId;

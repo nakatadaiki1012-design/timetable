@@ -7263,3 +7263,28 @@ body.hl-on .timetable tbody th { z-index: 8 !important; }
 .unplaced-badge { animation: none !important; }
 td.cell-suggest-from, td.cell-suggest-to, .timetable td.cell-suggest-from, .timetable td.cell-suggest-to,
 .slot-ng, .lesson.diff-moved, .qab-autoplace { animation-iteration-count: 2 !important; }
+
+/* ===== 提案の小さな時間割: 番号で「どのコマがどこへ」を示す ===== */
+.smg-legend { flex-basis: 100%; width: 100%; font-size: 12px; color: #334155; margin: 0 0 6px; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.smg-lg { display: inline-block; padding: 1px 6px; border-radius: 4px; font-weight: 900; font-size: 11px; }
+.smg-lg-out { border: 2px dashed #ef4444; color: #b91c1c; background: #fff; }
+.smg-lg-in { border: 2px solid #16a34a; color: #166534; background: #dcfce7; }
+.smg-table .smg-c { min-width: 44px; height: 30px; line-height: 1.15; font-size: 10px; padding: 1px 2px; }
+.smg-table .smg-from, .smg-table .smg-to, .smg-table .smg-both { background: #fff !important; color: #0f172a !important; padding: 0 !important; }
+.smg-table .smg-from { outline: 2px dashed #ef4444; outline-offset: -2px; }
+.smg-table .smg-to { outline: 2px solid #16a34a; outline-offset: -2px; background: #dcfce7 !important; }
+.smg-table .smg-both { outline: 2px solid #16a34a; outline-offset: -2px; }
+.smg-in { background: #dcfce7; color: #14532d; font-weight: 900; white-space: nowrap; padding: 1px 2px; font-size: 10px; }
+.smg-in b { color: #15803d; }
+.smg-out { color: #b91c1c; font-weight: 700; white-space: nowrap; padding: 0 2px; font-size: 9px; }
+.smg-out s { color: #94a3b8; }
+.smg-summary { font-size: 11px; gap: 6px; }
+.smg-num { color: #0f172a; font-size: 13px; }
+.smg-nm { font-weight: 800; color: #334155; }
+.smg-from-lbl { color: #b91c1c; font-weight: 800; }
+.smg-to-lbl { color: #15803d; font-weight: 900; }
+.smg-more { flex-basis: 100%; font-size: 11px; color: #64748b; padding: 4px; }
+.im-idx { width: 26px !important; font-size: 14px; color: #0f172a !important; }
+
+/* ドラッグ中の列の色付け（帯を1本動かす） */
+#grid > .col-band { position: absolute; top: 0; bottom: 0; left: 0; display: none; background: rgba(59, 130, 246, .10); pointer-events: none; z-index: 1; will-change: transform; }
