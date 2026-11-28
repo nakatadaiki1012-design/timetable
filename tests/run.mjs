@@ -266,11 +266,17 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
     { type: 'sheet-all-teacher', orient: 'portrait', paper: 'A3', onePage: true },
     { type: 'sheet-class', orient: 'portrait', paper: 'A3', perPage: 4 },
     { type: 'class-paged', orient: 'portrait', paper: 'A3', legacy: true },
+    { type: 'class-paged', orient: 'portrait', paper: 'A3', legacy: true, fit: true },
     { type: 'sheet-all-teacher', orient: 'landscape', paper: 'A4', fitOne: true, onePage: true },
   ];
   for (const c of cases) {
     await pg.evaluate((c) => { document.getElementById('print-page-orient').value = (c.paper === 'A3' ? 'a3-' : '') + c.orient; Object.assign(state.settings.sheet ||= {}, c); }, c);
     await pg.selectOption('#print-type', c.type); await pg.waitForTimeout(400);
+    if (c.fit) {
+      // 「用紙1枚に合わせる」を押しても、選んだ用紙（A3 縦）のまま
+      await pg.click('#btn-fit-a4-portrait'); await pg.waitForTimeout(300);
+      assert(await pg.evaluate(() => document.getElementById('print-page-orient').value) === 'a3-portrait', '用紙に合わせるを押したら、選んだ用紙が変わってしまった');
+    }
     if (c.legacy) {
       // 従来の印刷でも、選んだ用紙（A3 縦）でPDFになること
       await pg.emulateMedia({ media: 'print' });
@@ -289,6 +295,11 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
     });
     assert(r.pages > 0 && r.sheets > 0, '時間割表が1枚もできない: ' + JSON.stringify(c));
     if (c.onePage) assert(r.pages === 1, '全員が1枚に入らない: ' + JSON.stringify({ c, r }));
+    if (c.type === 'sheet-all-teacher') {
+      // 全校一覧（先生）: 授業のあるマスには必ず科目名も出ている（行が低くても、1マスに複数あっても消えない）
+      const miss = await pg.evaluate(() => [...document.querySelectorAll('.km-it')].filter(e => !e.querySelector('.km-s') && /^\d+-/.test(e.querySelector('.km-m')?.textContent || '')).length);
+      assert(miss === 0, `科目名が出ていないコマが ${miss} 個ある: ` + JSON.stringify(c));
+    }
     assert(r.spill === 0, `${c.type} で表が紙からはみ出す: ` + JSON.stringify(r));
     // PDFにして、ページ数が表のページ数と同じ（白紙ページができない）ことを確かめる
     await pg.emulateMedia({ media: 'print' });
