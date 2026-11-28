@@ -7288,3 +7288,6 @@ td.cell-suggest-from, td.cell-suggest-to, .timetable td.cell-suggest-from, .time
 
 /* ドラッグ中の列の色付け（帯を1本動かす） */
 #grid > .col-band { position: absolute; top: 0; bottom: 0; left: 0; display: none; background: rgba(59, 130, 246, .10); pointer-events: none; z-index: 1; will-change: transform; }
+.km-it.km-many { height: auto; }
+.km-it.km-row { flex-direction: row; gap: 0.4em; align-items: baseline; justify-content: center; white-space: nowrap; }
+.km-it.km-many + .km-it { border-top: 0.15mm dashed #94a3b8; }

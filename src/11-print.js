@@ -523,14 +523,17 @@
     const adays = activeDays();
     const maxP = Math.max(...adays.map(d => maxPeriod(d)));
     if (!maxP || !adays.length) { flash('データがありません'); return; }
-    // A4 縦: 210×297mm。96dpi換算 794×1123px、マージン各10mm(38px)引き
-    const pageW = 794 - 76;  // 718px
-    const pageH = 1123 - 76; // 1047px
+    // 選んでいる用紙（A4/A3・縦/横）に合わせる。96dpi換算、余白は各10mm(38px)
+    const a3 = printPaperSize() === 'A3', land = printOrient() === 'landscape';
+    const mm = (v) => Math.round(v * 96 / 25.4);
+    const pw = a3 ? 297 : 210, ph = a3 ? 420 : 297;
+    const pageW = mm(land ? ph : pw) - 76;
+    const pageH = mm(land ? pw : ph) - 76;
     const periodColW = 28;
     const headerRowH = 26;
     const dayColW = Math.max(50, Math.floor((pageW - periodColW) / adays.length));
     const rowH   = Math.max(18, Math.floor((pageH - headerRowH) / maxP));
-    const fs     = Math.max(7, Math.min(14, Math.floor(rowH * 0.32)));
+    const fs     = Math.max(7, Math.min(a3 ? 20 : 14, Math.floor(Math.min(rowH * 0.32, dayColW * 0.11))));
     // 列幅・行高さをドラッグリサイズ上書き形式で保存
     state.ui.printColWidths = { 0: periodColW };
     adays.forEach((_, i) => { state.ui.printColWidths[i + 1] = dayColW; });
@@ -539,12 +542,9 @@
     state.ui.printFontSizePx = fs;
     state.ui.printTitleFontSizePx = fs + 2;
     state.ui.printHeaderFontSizePx = fs;
-    // ページ方向を縦に
-    const orientEl = document.getElementById('print-page-orient');
-    if (orientEl) orientEl.value = 'portrait';
     markDirty('ui');
     renderPrint();
-    flash(`A4縦フィット: 列幅${dayColW}px / 行高${rowH}px / 文字${fs}px`);
+    flash(`${a3 ? 'A3' : 'A4'}${land ? '横' : '縦'}の1枚に合わせました（列幅${dayColW}px・行の高さ${rowH}px・文字${fs}px）`);
   }
   function printTableHTML(kind, key, idx, maxP, opt, layout, cellH = 46, fontSize = 12, printCols = 1, colW = 0) {
     const align = state.ui.printAlign || 'center';
@@ -635,9 +635,9 @@
       const isLandscape = imgW > imgH;
 
       const pdf = new jsPDF({
-        orientation: isLandscape ? 'landscape' : 'portrait',
+        orientation: printOrient(), // 選んでいる用紙の向き・大きさで保存する（以前はA4固定）
         unit: 'mm',
-        format: 'a4',
+        format: printPaperSize() === 'A3' ? 'a3' : 'a4',
       });
 
       const pageW = pdf.internal.pageSize.getWidth();
@@ -1399,7 +1399,6 @@
     const fit = (t, base, wmm) => Math.max(base * 0.45, Math.min(base, (wmm * 0.9) / Math.max(1, textLen(t))));
     const mainBase = Math.max(1.8, Math.min(rowH * 0.46, cw * 0.36, 5));
     const subBase = Math.max(1.4, Math.min(rowH * 0.3, mainBase * 0.72));
-    const showSub = rowH >= 4.6; // 行がとても低い時だけ2行目（先生・科目）を出さない
     const color = o.color === 'color';
     const cellFor = (ids, span) => {
       if (!ids.length) return '';
@@ -1415,11 +1414,19 @@
           main = (it.cls || []).length ? compactClsLabel(it.cls) : sj.main;
           if (main !== sj.main) sub = sj.isChoice ? '選択' : sj.main;
         }
-        const k = ids.length > 1 ? 0.7 : 1;
-        const fm = fit(main, mainBase * k, W), fs = fit(sub, subBase * k, W);
-        const col = color ? (state.subjectCfg[it.subjKey]?.color || pickColor(it.subjKey)) : '';
-        const st = color ? ` style="--ks-c:${col};--ks-bg:${paleColor(col, 0.2)}"` : '';
-        return `<div class="km-it"${st}><div class="km-m" style="font-size:${fm.toFixed(2)}mm">${sheetEsc(main)}</div>${showSub && sub && ids.length === 1 ? `<div class="km-s" style="font-size:${fs.toFixed(2)}mm">${sheetEsc(sub)}</div>` : ''}</div>`;
+        // 2行目（科目・先生）は消さない。1コマ分の高さが足りない時は、1行に並べて小さく出す
+        const avail = rowH / ids.length; // このコマに使える高さ(mm)
+        const many = ids.length > 1 ? ' km-many' : '';
+        if (sub && avail >= 4.6) {
+          const fm = fit(main, Math.min(mainBase, avail * 0.46), W), fs = fit(sub, Math.min(subBase, avail * 0.3), W);
+          return `<div class="km-it${many}"><div class="km-m" style="font-size:${fm.toFixed(2)}mm">${sheetEsc(main)}</div><div class="km-s" style="font-size:${fs.toFixed(2)}mm">${sheetEsc(sub)}</div></div>`;
+        }
+        if (sub) {
+          const f1 = Math.max(1.1, Math.min(Math.min(mainBase, avail * 0.7), (W * 0.92) / Math.max(1, textLen(main) + 0.4 + textLen(sub) * 0.8)));
+          return `<div class="km-it km-row${many}" style="font-size:${f1.toFixed(2)}mm"><span class="km-m">${sheetEsc(main)}</span><span class="km-s" style="font-size:${(f1 * 0.8).toFixed(2)}mm">${sheetEsc(sub)}</span></div>`;
+        }
+        const fm = fit(main, Math.min(mainBase, avail * 0.7), W);
+        return `<div class="km-it${many}"><div class="km-m" style="font-size:${fm.toFixed(2)}mm">${sheetEsc(main)}</div></div>`;
       }).join('');
     };
     let body = '';
