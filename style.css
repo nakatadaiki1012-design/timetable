@@ -7235,3 +7235,11 @@ body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
 }
 .sheet-opts .so-all { display: none; }
 #view-print.sheet-all .sheet-opts .so-all { display: inline-flex; }
+
+/* ===== 軽くする: 関連表示（カーソルを合わせた時）=====
+   以前は約2,500個のコマ1つ1つに色の加工（filter）とアニメーションを掛けていて、
+   マウスを動かすだけで描き直しが追いつかなかった。薄くするのは透明度だけにし、アニメーションはやめる。
+   濃く見せる側（数個だけ）の加工は残す。 */
+.timetable .lesson, .stock-item { transition: none !important; }
+body.hl-on .timetable .lesson:not(.hl-linked):not(.hl-samesubj):not(.hl-tea):not(.hl-cls):not(:hover) { opacity: .62 !important; filter: none !important; }
+.atw-hl-on .atw-card:not(.atw-hl-self):not(.atw-hl-tea):not(.atw-hl-cls) { opacity: .62; filter: none; }

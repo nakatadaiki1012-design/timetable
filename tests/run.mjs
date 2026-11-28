@@ -381,6 +381,44 @@ await test('Excel様式: 出力して取り込み直しても配置が残る・�
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); await pg.close2(); }
 });
 
+await test('軽さ: コマを選ぶ・動かす時に表全体を作り直さず、結果は全部描き直した時と同じ', async () => {
+  const pg = await openApp();
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(500);
+  await pg.click('input[name=viewmode][value=class]'); await pg.waitForTimeout(500);
+  // 行に目印を付けておき、操作の後も同じ行が残っているか（作り直されていないか）を見る
+  const mark = () => pg.evaluate(() => { document.querySelectorAll('#grid tbody tr').forEach((tr, i) => { tr.__mark = i; }); });
+  const kept = () => pg.evaluate(() => { const rows = [...document.querySelectorAll('#grid tbody tr')]; return { rows: rows.length, kept: rows.filter(tr => tr.__mark !== undefined).length }; });
+  const html = () => pg.evaluate(() => [...document.querySelectorAll('#grid tbody tr')].map(tr => tr.outerHTML.replace(/ class=""/g, '').replace(/ style="(font-size: [\d.]+px !important;)?"/g, '')).join('\n'));
+  const ids = await pg.evaluate(() => Object.keys(state.items).filter(i => state.placements[i]?.day && state.items[i].cls.length === 1).slice(0, 3));
+  await mark();
+  await pg.locator(`.timetable .lesson[data-id="${ids[0]}"]`).first().click(); await pg.waitForTimeout(200);
+  let k = await kept();
+  assert(k.kept === k.rows, 'コマを選んだだけで表が作り直された: ' + JSON.stringify(k));
+  assert(await pg.evaluate((id) => document.querySelector(`.timetable .lesson[data-id="${id}"]`).classList.contains('sel') && document.querySelectorAll('.timetable .lesson.sel').length >= 1, ids[0]), '選んだコマに印が付かない');
+  await pg.locator(`.timetable .lesson[data-id="${ids[1]}"]`).first().click(); await pg.waitForTimeout(200);
+  assert(await pg.evaluate((a) => !document.querySelector(`.timetable .lesson[data-id="${a[0]}"]`).classList.contains('sel') && document.querySelector(`.timetable .lesson[data-id="${a[1]}"]`).classList.contains('sel'), ids), '選び直した時に印が移らない');
+  // 在庫へ出す → 変わった行だけ差し替わる
+  await pg.evaluate(() => document.querySelector('.qab-stock').click()); await pg.waitForTimeout(400);
+  k = await kept();
+  assert(k.kept >= k.rows - 2 && k.kept < k.rows, '1コマ動かした時に差し替わる行の数がおかしい: ' + JSON.stringify(k));
+  await pg.keyboard.press('Escape'); await pg.mouse.move(5, 5); await pg.waitForTimeout(400); // マウスを外して関連表示を消してから比べる
+  const a = await html();
+  // 表示を切り替えて戻す（全部描き直す）→ 同じ内容になるはず
+  await pg.click('input[name=viewmode][value=teacher]'); await pg.waitForTimeout(400);
+  await pg.click('input[name=viewmode][value=class]'); await pg.mouse.move(5, 5); await pg.waitForTimeout(500);
+  const z = await html();
+  if (a !== z) { let j = 0; while (j < a.length && a[j] === z[j]) j++; console.log('    差: …' + a.slice(Math.max(0, j - 150), j + 150).replace(/\s+/g, ' ') + '\n     ≠ …' + z.slice(Math.max(0, j - 150), j + 150).replace(/\s+/g, ' ')); }
+  assert(a === z, '変わった行だけ差し替えた結果が、全部描き直した結果と違う');
+  // 別の画面から戻っただけなら作り直さない
+  await mark();
+  await pg.evaluate(() => document.getElementById('tab-school').click()); await pg.waitForTimeout(200);
+  await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(400);
+  k = await kept();
+  assert(k.kept === k.rows, '別の画面から戻っただけで表が作り直された: ' + JSON.stringify(k));
+  assert(!pg.errs.length, pg.errs.join(' | '));
+  await pg.close2();
+});
+
 await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {
   const pg = await openApp();
   await pg.click('#tab-edit'); await pg.waitForTimeout(300);

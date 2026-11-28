@@ -3,7 +3,15 @@
   ======================= */
   // prefer delegated DnD
   window._useDelegatedDnd = true;
-  function rerenderEdit() {
+  // 表の中身を決めるデータの「指紋」。前に描いた時と同じなら、表を作り直さなくてよい
+  let _gridSig = null;
+  function gridSignature() {
+    try {
+      const ui = { ...state.ui, selectedId: null, selectedFrom: '' };
+      return JSON.stringify([state.items, state.placements, state.subjectCfg, state.teacherCfg, state.settings, ui, document.getElementById('grid-wrapper')?.dataset.dl || '']);
+    } catch (e) { return null; }
+  }
+  function rerenderEdit(opts = {}) {
     applyBodyClasses();
     applyDensity();
     // v32.3: apply stock size
@@ -12,7 +20,10 @@
     const _wMap = { xs: '80px', sm: '100px', md: '128px', lg: '160px', xl: '200px' };
     document.documentElement.style.setProperty('--stockItemW', _wMap[_sz] || '128px');
     renderStock();
-    renderGrid();
+    // 別の画面から戻っただけで何も変わっていない時は、表を作り直さない（作り直すと1秒近く固まっていた）
+    const sig = opts.reuse ? gridSignature() : null;
+    if (sig && sig === _gridSig && document.querySelector('#grid .timetable')) { try { updateGridSelection(); } catch (e) { renderGrid(); } }
+    else renderGrid();
     renderProp();
     $('#stock-search').value = state.ui.stockSearch || '';
     $('#row-filter').value = state.ui.rowFilter || '';
@@ -245,14 +256,26 @@
 
   // コマの文字を「1行・はみ出さない最大サイズ」に合わせる。
   // まとめて読み取ってからまとめて書き込み、再計算(レイアウト)を最小限にする。
+  // コマの文字を、マスの幅に入る大きさに合わせる。
+  // 前に合わせた時と「文字」と「マスの幅」が同じコマは測り直さない（全コマを毎回測り直すと重い）
   function fitLessonText() {
     const root = document.getElementById('grid'); if (!root) return;
+    __fitOnly = null;
     const els = root.querySelectorAll('.timetable td .lesson .l1 .subj, .timetable td .lesson .l2');
     const MIN = 7;
-    for (const el of els) if (el.style.fontSize) el.style.fontSize = '';
-    const reads = [];
+    const todo = [];
     for (const el of els) {
+      const cw = el.clientWidth;
+      const key = cw + '|' + el.textContent;
+      if (el.__fk === key) continue;
+      el.__fkNext = key; todo.push(el);
+    }
+    if (!todo.length) return;
+    for (const el of todo) if (el.style.fontSize) el.style.fontSize = '';
+    const reads = [];
+    for (const el of todo) {
       const sw = el.scrollWidth, cw = el.clientWidth;
+      el.__fk = el.__fkNext;
       if (!cw || sw <= cw + 0.5) continue;
       reads.push([el, parseFloat(getComputedStyle(el).fontSize) || 11, cw / sw]);
     }
@@ -269,7 +292,12 @@
     const start = () => {
       const g = document.getElementById('grid'); if (!g) return;
       new MutationObserver(queueFitLessonText).observe(g, { childList: true, subtree: true });
-      window.addEventListener('resize', queueFitLessonText);
+      window.addEventListener('resize', () => { __fitOnly = null; queueFitLessonText(); });
+      // 表の幅が変わった時（右の詳細欄が開閉した時など）は、全コマの文字の大きさを合わせ直す
+      try {
+        let lastW = 0;
+        new ResizeObserver((es) => { const w = Math.round(es[0].contentRect.width); if (w && w !== lastW) { lastW = w; __fitOnly = null; queueFitLessonText(); } }).observe(document.getElementById('grid-wrapper') || g);
+      } catch (e) { }
     };
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start); else start();
   })();
@@ -348,9 +376,13 @@
     }
   }
   function renderGrid() {
-    const root = $('#grid'); if (!root) return;
+    const live = $('#grid'); if (!live) return;
+    // 表はまず画面の外で組み立て、最後に「前と変わった行だけ」を画面に差し替える（毎回全部を描き直すと重い）
+    const root = document.createElement('div');
     try { clearRelatedHighlight(); } catch (e) { } // 描き直し時に薄い表示が残らないように
     try { syncEditRadios(); } catch (e) { }
+    _gridSig = null; // 描いている途中で失敗した時に「描き終えた」と取り違えないよう、最後に付け直す
+    setTimeout(() => { _gridSig = gridSignature(); }, 0);
     const mode = state.ui.viewMode;
     const keysAll = getAxisKeys(mode);
     const keys = keysAll.filter(rowMatchesFilter);
@@ -394,30 +426,30 @@
 
     // v43: Delegated drag-and-drop on the grid root — most reliable approach
     // This catches ALL drops regardless of which child element is the target
-    root.ondragover = (ev) => {
+    live.ondragover = (ev) => {
       const td = ev.target.closest('td[data-day][data-p]');
       if (!td) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'move';
       // 既存のhint解除
-      root.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
+      live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
       td.classList.add('drop-hint');
       // 列全体ハイライト（同じ曜日×時限の全行）
       const day = td.dataset.day, p = td.dataset.p;
-      root.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
-      root.querySelectorAll(`td[data-day="${day}"][data-p="${p}"]`).forEach(el => el.classList.add('col-drag-over'));
+      live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+      live.querySelectorAll(`td[data-day="${day}"][data-p="${p}"]`).forEach(el => el.classList.add('col-drag-over'));
     };
-    root.ondragleave = (ev) => {
+    live.ondragleave = (ev) => {
       // only clear if leaving the grid entirely
-      if (!root.contains(ev.relatedTarget)) {
-        root.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-        root.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+      if (!live.contains(ev.relatedTarget)) {
+        live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
+        live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
       }
     };
-    root.ondrop = (ev) => {
+    live.ondrop = (ev) => {
       ev.preventDefault();
-      root.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-      root.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+      live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
+      live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
       const td = ev.target.closest('td[data-day][data-p]');
       if (!td) return;
       const dropId = ev.dataTransfer.getData('text/plain') || ev.dataTransfer.getData('id') || window._currentDragId;
@@ -637,6 +669,34 @@
 
     // ── 列リサイズ (Excelライク) ──
     _initColResize(root);
+    commitGrid(live, root);
+  }
+
+  // 組み立てた表を画面に反映する。見出しと行の並びが前と同じなら、中身が変わった行だけ差し替える
+  let __fitOnly = null;
+  function commitGrid(live, stage) {
+    const newT = stage.querySelector('table.timetable'); const oldT = live.querySelector(':scope > table.timetable');
+    const sigOf = (el) => el ? el.outerHTML : '';
+    if (newT) {
+      newT.__headSig = sigOf(newT.tHead) + sigOf(newT.querySelector('colgroup'));
+      for (const tr of newT.tBodies[0].rows) tr.__sig = tr.outerHTML;
+    }
+    let morphed = false;
+    try {
+      if (newT && oldT && oldT.__headSig === newT.__headSig) {
+        const o = [...oldT.tBodies[0].rows], n = [...newT.tBodies[0].rows];
+        if (o.length === n.length && o.every((tr, i) => tr.dataset.row === n[i].dataset.row)) {
+          const changed = [];
+          for (let i = 0; i < n.length; i++) if (o[i].__sig !== n[i].__sig) { o[i].replaceWith(n[i]); changed.push(n[i]); }
+          __fitOnly = changed; // 文字の大きさの測り直しも、差し替えた行だけでよい
+          morphed = true;
+        }
+      }
+    } catch (e) { morphed = false; }
+    if (!morphed) { __fitOnly = null; live.replaceChildren(...stage.childNodes); }
+    // 残した行に付いている選択の印などを、今の状態に合わせ直す
+    try { updateGridSelection(); } catch (e) { }
+    if (morphed && !__fitOnly.length) __fitOnly = null;
   }
 
   function _initColResize(root) {
@@ -797,6 +857,37 @@
   }
   // 【UI】連動グループ: 一緒に動く／同時に開講されるコマ
   //   同一コマ(合同で複数行に出る) / 並列設定コマ / 同時展開(自選等)ブロックの同時限コマ
+  // 選択中コマの連動グループは、表を1回描く間に何千回も聞かれるので覚えておく（以前は毎回全コマを調べ直していた）
+  let _selLinkedKey = null, _selLinkedSet = null;
+  function selLinkedIds(id) {
+    const p = state.placements[id];
+    const key = id + '|' + (p ? p.day + p.period : '') + '|' + Object.keys(state.items).length;
+    if (_selLinkedKey !== key || !_selLinkedSet) { _selLinkedKey = key; _selLinkedSet = linkedGroupIds(id); }
+    return _selLinkedSet;
+  }
+  // コマを選んだ・選択を外した時は、表を作り直さず「選択の印」だけを付け替える。
+  // （以前は選ぶたびに表全体を作り直し、全コマの文字の大きさを測り直していて、0.5秒ほど固まっていた）
+  function updateGridSelection() {
+    const root = document.getElementById('grid');
+    if (!root || !root.querySelector('.timetable')) return false;
+    root.querySelectorAll('.lesson.sel, .lesson.linked-hl, .lesson.linked-root').forEach(el => el.classList.remove('sel', 'linked-hl', 'linked-root'));
+    root.querySelectorAll('.valid-slot, .invalid-slot, .swap-slot, .hard-slot').forEach(el => el.classList.remove('valid-slot', 'invalid-slot', 'swap-slot', 'hard-slot'));
+    root.querySelectorAll('.slot-grade-badge').forEach(el => el.remove());
+    const sid = state.ui.selectedId;
+    if (!sid || !state.items[sid]) return true;
+    _selLinkedKey = null;
+    const group = selLinkedIds(sid);
+    const it = state.items[sid];
+    const isRoot = group.size > 1 || (it.cls || []).length > 1;
+    const esc = (v) => (window.CSS && CSS.escape) ? CSS.escape(v) : String(v).replace(/"/g, '\\"');
+    for (const gid of group) {
+      root.querySelectorAll(`.lesson[data-id="${esc(gid)}"]`).forEach(el => {
+        if (gid === sid) { el.classList.add('sel'); if (isRoot && !el.classList.contains('span-cont')) el.classList.add('linked-root'); }
+        else if (!el.classList.contains('span-cont')) el.classList.add('linked-hl');
+      });
+    }
+    return true;
+  }
   function linkedGroupIds(id) {
     const it = state.items[id]; const plc = state.placements[id];
     const out = new Set([id]);
@@ -901,7 +992,7 @@
     el.dataset.id = id;
     el.classList.add(mode === 'teacher' ? 'mode-teacher' : mode === 'class' ? 'mode-class' : 'mode-room');
     // 【UI】選択中コマの連動グループ（合同の別行表示・並列・同時展開）を常時強調
-    try { const sid = state.ui.selectedId; if (sid && sid !== id && linkedGroupIds(sid).has(id)) el.classList.add('linked-hl'); if (sid === id && (linkedGroupIds(id).size > 1 || (it.cls || []).length > 1)) el.classList.add('linked-root'); } catch (e) { }
+    try { const sid = state.ui.selectedId; if (sid && sid !== id && selLinkedIds(sid).has(id)) el.classList.add('linked-hl'); if (sid === id && (selLinkedIds(id).size > 1 || (it.cls || []).length > 1)) el.classList.add('linked-root'); } catch (e) { }
     // el.title removed: browser tooltip suppressed (custom hover-tip used instead)
     // 【B-3】淡い背景＋濃い文字＋左端の色帯（科目色分けは色帯で維持、文字はコントラスト比4.5以上）
     applyLessonBg(el, it, color);
@@ -1092,8 +1183,10 @@
     state.ui.selectedId = id || null;
     state.ui.selectedFrom = from;
     renderProp();
-    // highlight in grid/stock by rerender parts
-    renderGrid();
+    // 表は作り直さず、選択の印だけ付け替える（表がまだ無い時だけ作る）
+    let fast = false;
+    try { clearRelatedHighlight(); fast = updateGridSelection(); } catch (e) { fast = false; }
+    if (!fast) renderGrid();
     renderStock();
 
     // Show/hide quick action bar (v34.4)
