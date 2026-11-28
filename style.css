@@ -7235,3 +7235,31 @@ body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
 }
 .sheet-opts .so-all { display: none; }
 #view-print.sheet-all .sheet-opts .so-all { display: inline-flex; }
+
+/* ===== 軽くする: 関連表示（カーソルを合わせた時）=====
+   以前は約2,500個のコマ1つ1つに色の加工（filter）とアニメーションを掛けていて、
+   マウスを動かすだけで描き直しが追いつかなかった。薄くするのは透明度だけにし、アニメーションはやめる。
+   濃く見せる側（数個だけ）の加工は残す。 */
+.timetable .lesson, .stock-item { transition: none !important; }
+/* 関係ないコマを薄くする方法: コマを1つずつ薄く描き直す（約2,400個）のをやめ、
+   表の上に半透明の白い幕を1枚かぶせ、関係あるコマだけを幕の上に出す。描き直すのは幕と数個のコマだけになる */
+body.hl-on .timetable .lesson:not(.hl-linked):not(.hl-samesubj):not(.hl-tea):not(.hl-cls):not(:hover) { opacity: 1 !important; filter: none !important; }
+#grid { position: relative; }
+#grid::after { content: ''; position: absolute; inset: 0; background: rgba(255, 255, 255, .4); pointer-events: none; z-index: 5; display: none; }
+body.hl-on #grid::after { display: block; }
+body.hl-on .timetable .lesson.hl-linked, body.hl-on .timetable .lesson.hl-samesubj, body.hl-on .timetable .lesson.hl-tea, body.hl-on .timetable .lesson.hl-cls, body.hl-on .timetable .lesson:hover { position: relative; z-index: 6 !important; }
+/* 見出し（曜日・時限・行の名前）は幕より上に出して、薄くしない */
+body.hl-on .timetable thead th { z-index: 9 !important; }
+body.hl-on .timetable tbody th { z-index: 8 !important; }
+.atw-hl-on .atw-card:not(.atw-hl-self):not(.atw-hl-tea):not(.atw-hl-cls) { opacity: .62; filter: none; }
+
+/* 軽くする: ドラッグ中の「置ける場所」の印は点滅させない（約120マスが点滅し続け、止まっていても描き直しが続いていた） */
+.timetable td.valid-slot, .valid-slot, .timetable td.swap-slot, .swap-slot, .timetable td.hard-slot, .hard-slot { animation: none !important; }
+
+/* ===== 軽くする: ずっと動き続けるアニメーションをやめる =====
+   この画面は部品が多く、どこか1か所でも点滅し続けていると、ブラウザが毎コマ画面全体の準備をし直して
+   何も操作していなくても働き続けてしまう（未配置の数の赤い丸の点滅だけで、3秒のうち1.6秒働いていた）。
+   点滅は「出た時に2回だけ」にして止める。色や形はそのまま。 */
+.unplaced-badge { animation: none !important; }
+td.cell-suggest-from, td.cell-suggest-to, .timetable td.cell-suggest-from, .timetable td.cell-suggest-to,
+.slot-ng, .lesson.diff-moved, .qab-autoplace { animation-iteration-count: 2 !important; }

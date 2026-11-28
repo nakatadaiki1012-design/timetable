@@ -159,7 +159,7 @@
     $$('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     $$('.view').forEach(v => v.style.display = 'none');
     $('#view-' + tab).style.display = 'flex';
-    if (tab === 'edit') rerenderEdit();
+    if (tab === 'edit') rerenderEdit({ reuse: true });
     if (tab === 'subject') renderSubjectSettings();
     if (tab === 'teacher') renderTeacherSettings();
     if (tab === 'input') renderInputTable();
