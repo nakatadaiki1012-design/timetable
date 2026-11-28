@@ -5421,30 +5421,43 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
   // コマの文字を「1行・はみ出さない最大サイズ」に合わせる。
   // まとめて読み取ってからまとめて書き込み、再計算(レイアウト)を最小限にする。
   // コマの文字を、マスの幅に入る大きさに合わせる。
-  // 前に合わせた時と「文字」と「マスの幅」が同じコマは測り直さない（全コマを毎回測り直すと重い）
+  // ・「文字」と「マスの幅」が前と同じコマは何もしない
+  // ・一度測ったコマは「文字の本来の幅」を覚えておき、マスの幅が変わっても計算だけで合わせ直す
+  //   （以前は幅が変わるたびに全コマの大きさを戻して測り直していて、表全体の配置計算が余分に2回走っていた）
   function fitLessonText() {
     const root = document.getElementById('grid'); if (!root) return;
     __fitOnly = null;
     const els = root.querySelectorAll('.timetable td .lesson .l1 .subj, .timetable td .lesson .l2');
     const MIN = 7;
-    const todo = [];
+    const wrap = document.getElementById('grid-wrapper');
+    // 文字の基準の大きさが変わる設定（密度・文字の大きさ・表示の種類）が変わったら、覚えた値は使わない
+    const epoch = (wrap?.dataset.dl || '') + '|' + (state.ui.fontStep || 0) + '|' + (state.ui.viewMode || '') + '|' + (document.body.className || '');
+    const writes = [], redo = [];
+    // 読むだけ（ここでは何も書き換えない。書き換えと読み取りを混ぜると、そのたびに配置計算が走る）
     for (const el of els) {
       const cw = el.clientWidth;
-      const key = cw + '|' + el.textContent;
+      const text = el.textContent;
+      const key = epoch + '|' + cw + '|' + text;
       if (el.__fk === key) continue;
-      el.__fkNext = key; todo.push(el);
+      if (!cw) continue;
+      const known = el.__ep === epoch && el.__txt === text;
+      if (known && el.__tw) {                       // 文字の本来の幅を知っている → 計算だけ
+        writes.push([el, cw >= el.__tw - 0.5 ? '' : Math.max(MIN, Math.floor(el.__fs0 * (cw / el.__tw) * 10) / 10)]);
+      } else if (known && el.__fitW && cw >= el.__fitW) { // 前より広くなっただけで、前も入っていた → そのまま
+      } else if (!el.style.fontSize) {                // まだ大きさを変えていない → その場で測れる
+        const sw = el.scrollWidth;
+        el.__ep = epoch; el.__txt = text;
+        if (sw > cw + 0.5) {
+          el.__fs0 = parseFloat(getComputedStyle(el).fontSize) || 11; el.__tw = sw; el.__fitW = 0;
+          writes.push([el, Math.max(MIN, Math.floor(el.__fs0 * (cw / sw) * 10) / 10)]);
+        } else { el.__tw = 0; el.__fitW = cw; }
+      } else { redo.push(el); continue; }             // 設定が変わった等 → 大きさを戻して測り直す
+      el.__fk = key;
     }
-    if (!todo.length) return;
-    for (const el of todo) if (el.style.fontSize) el.style.fontSize = '';
-    const reads = [];
-    for (const el of todo) {
-      const sw = el.scrollWidth, cw = el.clientWidth;
-      el.__fk = el.__fkNext;
-      if (!cw || sw <= cw + 0.5) continue;
-      reads.push([el, parseFloat(getComputedStyle(el).fontSize) || 11, cw / sw]);
-    }
-    for (const [el, fs, r] of reads) {
-      el.style.setProperty('font-size', Math.max(MIN, Math.floor(fs * r * 10) / 10) + 'px', 'important');
+    for (const [el, fs] of writes) { if (fs === '') el.style.fontSize = ''; else el.style.setProperty('font-size', fs + 'px', 'important'); }
+    if (redo.length) {
+      for (const el of redo) { el.style.fontSize = ''; el.__ep = null; el.__fk = null; }
+      queueFitLessonText(); // 次の描画の時に、戻した大きさで測り直す
     }
   }
   let __fitQueued = false;
@@ -5600,16 +5613,19 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       // 既存のhint解除
       live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
       td.classList.add('drop-hint');
-      // 列全体ハイライト（同じ曜日×時限の全行）
-      const day = td.dataset.day, p = td.dataset.p;
-      live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
-      live.querySelectorAll(`td[data-day="${day}"][data-p="${p}"]`).forEach(el => el.classList.add('col-drag-over'));
+      // 列全体の色付け: 列のマス全部（60個以上）に印を付けると動かすたびに描き直しが重いので、色の帯を1本動かす
+      let band = live.querySelector(':scope > .col-band');
+      if (!band) { band = document.createElement('div'); band.className = 'col-band'; live.appendChild(band); }
+      const r = td.getBoundingClientRect(), lr = live.getBoundingClientRect();
+      band.style.width = r.width + 'px';
+      band.style.transform = `translateX(${Math.round(r.left - lr.left)}px)`;
+      band.style.display = 'block';
     };
     live.ondragleave = (ev) => {
       // only clear if leaving the grid entirely
       if (!live.contains(ev.relatedTarget)) {
         live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-        live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+        { const b0 = live.querySelector(':scope > .col-band'); if (b0) b0.style.display = 'none'; }
       }
     };
     // ドラッグをやめた時（Escで取り消した・表の外で離した）も、列の色付けを消す。以前は残ったままになった
@@ -5617,13 +5633,13 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       live._dragEndBound = true;
       window.addEventListener('dragend', () => {
         live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-        live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+        { const b0 = live.querySelector(':scope > .col-band'); if (b0) b0.style.display = 'none'; }
       });
     }
     live.ondrop = (ev) => {
       ev.preventDefault();
       live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
-      live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+      { const b0 = live.querySelector(':scope > .col-band'); if (b0) b0.style.display = 'none'; }
       const td = ev.target.closest('td[data-day][data-p]');
       if (!td) return;
       const dropId = ev.dataTransfer.getData('text/plain') || ev.dataTransfer.getData('id') || window._currentDragId;
@@ -7999,7 +8015,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
           const teasStr = (it_m?.teas || []).join(', ').slice(0, 12);
           const clsStr = (it_m?.cls || []).join(', ').slice(0, 12);
           return `<div class="idea-move-row">
-            <span class="im-idx">${String(i + 1).padStart(3, '0')}</span>
+            <span class="im-idx">${i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`}</span>
             <span class="im-subj2">${escapeHtml(subjAbbr)}</span>
             <span class="im-fromto">${fromStr} ➜ ${toStr}</span>
             <span class="im-tea">${escapeHtml(teasStr)}</span>
@@ -8026,7 +8042,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
               <button class="idea-btn apply ${isForce ? 'apply-force' : ''}" id="idea-btn-apply">${isForce ? '⚠ 強制採用' : '採 用'}</button>
               <button class="idea-btn" id="idea-btn-reason">詳細</button>
             </div>
-            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).join(' · '))}</div>` : ''}
+            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).filter(r => !/→/.test(r) || (selSug.moves || []).length <= 1).join(' · '))}</div>` : ''}
             <div class="idea-sug-moves-list">${movesListHtml || '<div style="padding:8px;color:#94a3b8">移動なし</div>'}</div>
             ${miniGridsHtml ? `<div class="idea-sug-grids">${miniGridsHtml}</div>` : ''}
           </div>
@@ -8402,119 +8418,65 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         for (const t of it.teas || []) { if (!teas.includes(t)) teas.push(t); }
       }
       if (!teas.length) return '';
-      const showTeas = teas.slice(0, 3);
+      const showTeas = teas.slice(0, 6);
       const idx = buildIndex();
       const maxP = Math.max(...DAYS.map(d => maxPeriod(d)));
+      // 動くコマに通し番号を付ける。「①出」と「①入」のように、同じ番号が同じコマ（下の手順の番号とも同じ）
+      const numOf = new Map(moves.map((m, i) => [m.id, i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`]));
+      const lab = (it) => {
+        const c = (it.cls || []).length ? compactClsLabel(it.cls) : '';
+        return c || (state.subjectCfg[it.subjKey]?.abbr || it.subj || '').slice(0, 4);
+      };
+      const legend = `<div class="smg-legend"><span class="smg-lg smg-lg-out">①出</span>ここから出ていく　<span class="smg-lg smg-lg-in">①入</span>ここへ入ってくる　<span style="color:#64748b">同じ番号が同じコマです（表は動かす前の時間割）</span></div>`;
 
-      return showTeas.map(tea => {
+      return legend + showTeas.map(tea => {
         const abbr = state.teacherCfg[tea]?.abbr || tea.slice(0, 4);
-        // FROM/TO cells for this teacher
-        const myFromCells = new Set();
-        const myToCells = new Set();
-        for (const m of moves) {
-          const it = state.items[m.id];
-          if (!it) continue;
-          if (!(it.teas || []).includes(tea)) continue;
-          const fromPlc = state.placements[m.id];
-          if (fromPlc) for (let dp = 0; dp < (it.span || 1); dp++) myFromCells.add(`${fromPlc.day}|${fromPlc.period + dp}`);
-          for (let dp = 0; dp < (it.span || 1); dp++) myToCells.add(`${m.day}|${m.period + dp}`);
-        }
-
-        let rows = '';
-        // Collect which cells need highlighting for this teacher (only show rows that matter + 1 context row)
-        const highlightPeriods = new Set();
-        for (const k of [...myFromCells, ...myToCells]) {
-          const [, p] = k.split('|');
-          const pi = parseInt(p);
-          for (let dp = -1; dp <= 1; dp++) {
-            if (pi + dp >= 1 && pi + dp <= maxP) highlightPeriods.add(pi + dp);
-          }
-        }
-
-        for (let p = 1; p <= maxP; p++) {
-          rows += `<tr>`;
-          rows += `<td class="smg-h">${p}</td>`;
-          for (const d of DAYS) {
-            const cellKey = `${d}|${p}`;
-            const isFrom = myFromCells.has(cellKey);
-            const isTo = myToCells.has(cellKey);
-            const cellIds = (idx.tea?.[tea]?.[d]?.[p] || []).filter(x => !isSpanFill(x, d, p));
-            let cellContent = '';
-            let cellStyle = '';
-            let cellClass = 'smg-c';
-
-            if (isFrom && isTo) {
-              cellStyle = 'background:#8b5cf6;color:#fff;font-weight:900;font-size:10px';
-              cellContent = '↔';
-            } else if (isFrom) {
-              // 移動元：赤系濃い背景 + 出発矢印
-              cellStyle = 'background:#ef4444;color:#fff;font-weight:900;font-size:10px;position:relative';
-              const it0 = cellIds.length ? state.items[cellIds[0]] : null;
-              const ab0 = it0 ? (state.subjectCfg[it0.subjKey]?.abbr || it0.subj || '').slice(0, 3) : '';
-              cellContent = `<div style="font-size:7px;opacity:.85">${escapeHtml(ab0)}</div><div style="font-size:13px">↑</div>`;
-              cellClass = 'smg-c smg-from';
-            } else if (isTo) {
-              // 移動先：緑系濃い背景 + 到着矢印
-              cellStyle = 'background:#16a34a;color:#fff;font-weight:900;font-size:10px;position:relative';
-              const it0 = cellIds.length ? state.items[cellIds[0]] : null;
-              const ab0 = it0 ? (state.subjectCfg[it0.subjKey]?.abbr || it0.subj || '').slice(0, 3) : '';
-              cellContent = `<div style="font-size:7px;opacity:.85">${it0 ? escapeHtml(ab0) : '空'}</div><div style="font-size:13px">↓</div>`;
-              cellClass = 'smg-c smg-to';
-            } else if (cellIds.length) {
-              const id0 = cellIds[0];
-              const it0 = state.items[id0];
-              const sc0 = state.subjectCfg[it0?.subjKey] || {};
-              const col0 = sc0.color || pickColor(it0?.subjKey || '');
-              const ab0 = (sc0.abbr || it0?.subj || '').slice(0, 3);
-              cellStyle = `background:${col0}28;border-left:3px solid ${col0}`;
-              cellContent = escapeHtml(ab0);
-            }
-            if (p > maxPeriod(d)) {
-              rows += `<td class="smg-fd"></td>`;
-            } else {
-              rows += `<td class="${cellClass}" style="${cellStyle}">${cellContent}</td>`;
-            }
-          }
-          rows += `</tr>`;
-        }
-
-        // Build SVG arrow overlay: connect FROM cells to TO cells
-        // We'll add a CSS arrow indicator below the table instead
-        const arrowPairs = [];
+        // この先生のコマについて、出ていくマス・入ってくるマスを集める
+        const outAt = new Map(), inAt = new Map();
+        const push = (mp, k, v) => { if (!mp.has(k)) mp.set(k, []); mp.get(k).push(v); };
+        const pairs = [];
         for (const m of moves) {
           const it = state.items[m.id];
           if (!it || !(it.teas || []).includes(tea)) continue;
           const fromPlc = state.placements[m.id];
-          if (fromPlc) {
-            arrowPairs.push({
-              from: `${DAYJP[fromPlc.day]}${fromPlc.period}限`,
-              to: `${DAYJP[m.day]}${m.period}限`,
-              subj: (state.subjectCfg[it.subjKey]?.abbr || it.subj || '').slice(0, 4)
-            });
-          }
+          const n = numOf.get(m.id);
+          if (fromPlc && fromPlc.day) for (let dp = 0; dp < (it.span || 1); dp++) push(outAt, `${fromPlc.day}|${fromPlc.period + dp}`, { n, it });
+          for (let dp = 0; dp < (it.span || 1); dp++) push(inAt, `${m.day}|${m.period + dp}`, { n, it });
+          pairs.push({ n, name: `${(state.subjectCfg[it.subjKey]?.abbr || it.subj || '').slice(0, 6)}${(it.cls || []).length ? ' ' + compactClsLabel(it.cls) : ''}`, from: fromPlc && fromPlc.day ? `${DAYJP[fromPlc.day]}${fromPlc.period}` : '在庫', to: `${DAYJP[m.day]}${m.period}` });
         }
-        const arrowHTML = arrowPairs.map(ap =>
-          `<div class="smg-arrow-row">` +
-          `<span class="smg-ar-from" style="background:#fef2f2;border:1px solid #ef4444;border-radius:4px;padding:2px 6px;color:#b91c1c;font-size:11px;font-weight:700">` +
-          `↑ ${escapeHtml(ap.subj)} ${escapeHtml(ap.from)}</span>` +
-          `<svg class="smg-ar-svg" viewBox="0 0 48 14" fill="none" style="width:48px;height:14px;flex-shrink:0">` +
-          `<line x1="2" y1="7" x2="40" y2="7" stroke="url(#smgar-grad-${Math.random().toString(36).slice(2,6)})" stroke-width="2.5" stroke-linecap="round"/>` +
-          `<polygon points="36,3 48,7 36,11" fill="#16a34a"/>` +
-          `</svg>` +
-          `<span class="smg-ar-to" style="background:#f0fdf4;border:1px solid #16a34a;border-radius:4px;padding:2px 6px;color:#15803d;font-size:11px;font-weight:700">` +
-          `↓ ${escapeHtml(ap.to)}</span>` +
-          `</div>`
-        ).join('');
 
-        // Compact FROM→TO summary below table
-        const summaryHTML = arrowPairs.map(ap =>
-          `<div class="smg-summary"><span class="smg-from-lbl">↑ ${escapeHtml(ap.subj)} ${escapeHtml(ap.from)}</span>` +
-          `<span class="smg-arr-lbl">▶</span>` +
-          `<span class="smg-to-lbl">${escapeHtml(ap.to)} ↓</span></div>`
+        let rows = '';
+        for (let p = 1; p <= maxP; p++) {
+          rows += `<tr><td class="smg-h">${p}</td>`;
+          for (const d of DAYS) {
+            if (p > maxPeriod(d)) { rows += `<td class="smg-fd"></td>`; continue; }
+            const k = `${d}|${p}`;
+            const outs = outAt.get(k) || [], ins = inAt.get(k) || [];
+            const cellIds = (idx.tea?.[tea]?.[d]?.[p] || []).filter(x => !isSpanFill(x, d, p));
+            let cls = 'smg-c', style = '', content = '';
+            if (ins.length || outs.length) {
+              // 入ってくるコマを主に見せる（入るコマが無ければ、出ていくコマを点線で）
+              const inH = ins.map(x => `<div class="smg-in"><b>${x.n}入</b> ${escapeHtml(lab(x.it))}</div>`).join('');
+              const outH = outs.map(x => `<div class="smg-out"><b>${x.n}出</b> <s>${escapeHtml(lab(x.it))}</s></div>`).join('');
+              cls = 'smg-c ' + (ins.length && outs.length ? 'smg-both' : ins.length ? 'smg-to' : 'smg-from');
+              content = inH + outH;
+            } else if (cellIds.length) {
+              const it0 = state.items[cellIds[0]];
+              const sc0 = state.subjectCfg[it0?.subjKey] || {};
+              const col0 = sc0.color || pickColor(it0?.subjKey || '');
+              style = `background:${col0}28;border-left:3px solid ${col0}`;
+              content = escapeHtml(it0 ? lab(it0) : '');
+            }
+            rows += `<td class="${cls}" style="${style}">${content}</td>`;
+          }
+          rows += `</tr>`;
+        }
+        const summaryHTML = pairs.map(ap =>
+          `<div class="smg-summary"><b class="smg-num">${ap.n}</b><span class="smg-nm">${escapeHtml(ap.name)}</span><span class="smg-from-lbl">${escapeHtml(ap.from)}</span><span class="smg-arr-lbl">→</span><span class="smg-to-lbl">${escapeHtml(ap.to)}</span></div>`
         ).join('');
 
         return `<div class="smg-block">
-        <div class="smg-title smg-title-mover">📋 ${escapeHtml(abbr)}</div>
+        <div class="smg-title smg-title-mover">📋 ${escapeHtml(abbr)} 先生</div>
         <div style="position:relative">
           <table class="smg-table">
             <thead><tr><th></th>${DAYS.map(d => `<th>${DAYJP[d]}</th>`).join('')}</tr></thead>
@@ -8523,82 +8485,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
         </div>
         ${summaryHTML}
       </div>`;
-      }).join('') + (() => {
-        // ── どかされる教員の簡易時間割 ──
-        // 移動先スロットに既存コマがある場合、その教員の時間割を表示
-        try {
-          const moveIdSet = new Set(moves.map(m => m.id));
-          const displacedTeaSet = new Set();
-          for (const m of moves) {
-            const it = state.items[m.id];
-            if (!it) continue;
-            // find items at destination that aren't in moves
-            for (const [pid, plc] of Object.entries(state.placements)) {
-              if (!plc || moveIdSet.has(pid)) continue;
-              if (plc.day === m.day && plc.period === m.period) {
-                const dIt = state.items[pid];
-                if (!dIt) continue;
-                // same class check
-                const sharedCls = (it.cls || []).some(c => (dIt.cls || []).includes(c));
-                if (sharedCls) {
-                  for (const t of dIt.teas || []) displacedTeaSet.add(t);
-                }
-              }
-            }
-          }
-          const displacedTeas = [...displacedTeaSet].filter(t => !teas.includes(t)).slice(0, 2);
-          if (!displacedTeas.length) return '';
-
-          return displacedTeas.map(tea => {
-            const abbr = state.teacherCfg[tea]?.abbr || tea.slice(0, 4);
-            let rows = '';
-            for (let p = 1; p <= maxP; p++) {
-              rows += `<tr><td class="smg-h">${p}</td>`;
-              for (const d of DAYS) {
-                const cellIds = (idx.tea?.[tea]?.[d]?.[p] || []).filter(x => !isSpanFill(x, d, p));
-                // Highlight destination slot (where this teacher's lesson is being displaced FROM)
-                let isDisplacedFrom = false;
-                for (const m of moves) {
-                  if (m.day === d && m.period === p) {
-                    if ((idx.tea?.[tea]?.[d]?.[p] || []).some(pid => !moveIdSet.has(pid))) {
-                      isDisplacedFrom = true;
-                    }
-                  }
-                }
-                let cellContent = '';
-                let cellStyle = '';
-                if (isDisplacedFrom) {
-                  const it0 = cellIds.length ? state.items[cellIds[0]] : null;
-                  const ab0 = it0 ? (state.subjectCfg[it0.subjKey]?.abbr || it0.subj || '').slice(0, 3) : '';
-                  cellStyle = 'background:#f59e0b;color:#fff;font-weight:900;font-size:10px;border:2px solid #b45309;';
-                  cellContent = `<div style="font-size:7px;opacity:.9">${escapeHtml(ab0)}</div><div>退</div>`;
-                } else if (cellIds.length) {
-                  const id0 = cellIds[0];
-                  const it0 = state.items[id0];
-                  const sc0 = state.subjectCfg[it0?.subjKey] || {};
-                  const col0 = sc0.color || pickColor(it0?.subjKey || '');
-                  const ab0 = (sc0.abbr || it0?.subj || '').slice(0, 3);
-                  cellStyle = `background:${col0}20;border-left:3px solid ${col0}`;
-                  cellContent = escapeHtml(ab0);
-                }
-                if (p > maxPeriod(d)) {
-                  rows += `<td class="smg-fd"></td>`;
-                } else {
-                  rows += `<td class="smg-c" style="${cellStyle}">${cellContent}</td>`;
-                }
-              }
-              rows += `</tr>`;
-            }
-            return `<div class="smg-block smg-displaced">
-            <div class="smg-title smg-title-displaced">⬅ ${escapeHtml(abbr)} (退避)</div>
-            <table class="smg-table">
-              <thead><tr><th></th>${DAYS.map(d => `<th>${DAYJP[d]}</th>`).join('')}</tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>`;
-          }).join('');
-        } catch (e) { return ''; }
-      })();
+      }).join('') + (teas.length > showTeas.length ? `<div class="smg-more">ほか ${teas.length - showTeas.length} 人の先生も動きます（下の手順に全部出ています）</div>` : '') + '';
     } catch (e) { console.error('buildSugMiniGridHTML error', e); return ''; }
   }
   function isSamePositionSuggestion(s) {

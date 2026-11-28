@@ -1274,7 +1274,7 @@
           const teasStr = (it_m?.teas || []).join(', ').slice(0, 12);
           const clsStr = (it_m?.cls || []).join(', ').slice(0, 12);
           return `<div class="idea-move-row">
-            <span class="im-idx">${String(i + 1).padStart(3, '0')}</span>
+            <span class="im-idx">${i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`}</span>
             <span class="im-subj2">${escapeHtml(subjAbbr)}</span>
             <span class="im-fromto">${fromStr} ➜ ${toStr}</span>
             <span class="im-tea">${escapeHtml(teasStr)}</span>
@@ -1301,7 +1301,7 @@
               <button class="idea-btn apply ${isForce ? 'apply-force' : ''}" id="idea-btn-apply">${isForce ? '⚠ 強制採用' : '採 用'}</button>
               <button class="idea-btn" id="idea-btn-reason">詳細</button>
             </div>
-            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).join(' · '))}</div>` : ''}
+            ${selSug.reason ? `<div class="idea-sug-reason">${escapeHtml((selSug.reason || []).filter(r => !/→/.test(r) || (selSug.moves || []).length <= 1).join(' · '))}</div>` : ''}
             <div class="idea-sug-moves-list">${movesListHtml || '<div style="padding:8px;color:#94a3b8">移動なし</div>'}</div>
             ${miniGridsHtml ? `<div class="idea-sug-grids">${miniGridsHtml}</div>` : ''}
           </div>
@@ -1677,119 +1677,65 @@
         for (const t of it.teas || []) { if (!teas.includes(t)) teas.push(t); }
       }
       if (!teas.length) return '';
-      const showTeas = teas.slice(0, 3);
+      const showTeas = teas.slice(0, 6);
       const idx = buildIndex();
       const maxP = Math.max(...DAYS.map(d => maxPeriod(d)));
+      // 動くコマに通し番号を付ける。「①出」と「①入」のように、同じ番号が同じコマ（下の手順の番号とも同じ）
+      const numOf = new Map(moves.map((m, i) => [m.id, i < 20 ? String.fromCharCode(0x2460 + i) : `(${i + 1})`]));
+      const lab = (it) => {
+        const c = (it.cls || []).length ? compactClsLabel(it.cls) : '';
+        return c || (state.subjectCfg[it.subjKey]?.abbr || it.subj || '').slice(0, 4);
+      };
+      const legend = `<div class="smg-legend"><span class="smg-lg smg-lg-out">①出</span>ここから出ていく　<span class="smg-lg smg-lg-in">①入</span>ここへ入ってくる　<span style="color:#64748b">同じ番号が同じコマです（表は動かす前の時間割）</span></div>`;
 
-      return showTeas.map(tea => {
+      return legend + showTeas.map(tea => {
         const abbr = state.teacherCfg[tea]?.abbr || tea.slice(0, 4);
-        // FROM/TO cells for this teacher
-        const myFromCells = new Set();
-        const myToCells = new Set();
-        for (const m of moves) {
-          const it = state.items[m.id];
-          if (!it) continue;
-          if (!(it.teas || []).includes(tea)) continue;
-          const fromPlc = state.placements[m.id];
-          if (fromPlc) for (let dp = 0; dp < (it.span || 1); dp++) myFromCells.add(`${fromPlc.day}|${fromPlc.period + dp}`);
-          for (let dp = 0; dp < (it.span || 1); dp++) myToCells.add(`${m.day}|${m.period + dp}`);
-        }
-
-        let rows = '';
-        // Collect which cells need highlighting for this teacher (only show rows that matter + 1 context row)
-        const highlightPeriods = new Set();
-        for (const k of [...myFromCells, ...myToCells]) {
-          const [, p] = k.split('|');
-          const pi = parseInt(p);
-          for (let dp = -1; dp <= 1; dp++) {
-            if (pi + dp >= 1 && pi + dp <= maxP) highlightPeriods.add(pi + dp);
-          }
-        }
-
-        for (let p = 1; p <= maxP; p++) {
-          rows += `<tr>`;
-          rows += `<td class="smg-h">${p}</td>`;
-          for (const d of DAYS) {
-            const cellKey = `${d}|${p}`;
-            const isFrom = myFromCells.has(cellKey);
-            const isTo = myToCells.has(cellKey);
-            const cellIds = (idx.tea?.[tea]?.[d]?.[p] || []).filter(x => !isSpanFill(x, d, p));
-            let cellContent = '';
-            let cellStyle = '';
-            let cellClass = 'smg-c';
-
-            if (isFrom && isTo) {
-              cellStyle = 'background:#8b5cf6;color:#fff;font-weight:900;font-size:10px';
-              cellContent = '↔';
-            } else if (isFrom) {
-              // 移動元：赤系濃い背景 + 出発矢印
-              cellStyle = 'background:#ef4444;color:#fff;font-weight:900;font-size:10px;position:relative';
-              const it0 = cellIds.length ? state.items[cellIds[0]] : null;
-              const ab0 = it0 ? (state.subjectCfg[it0.subjKey]?.abbr || it0.subj || '').slice(0, 3) : '';
-              cellContent = `<div style="font-size:7px;opacity:.85">${escapeHtml(ab0)}</div><div style="font-size:13px">↑</div>`;
-              cellClass = 'smg-c smg-from';
-            } else if (isTo) {
-              // 移動先：緑系濃い背景 + 到着矢印
-              cellStyle = 'background:#16a34a;color:#fff;font-weight:900;font-size:10px;position:relative';
-              const it0 = cellIds.length ? state.items[cellIds[0]] : null;
-              const ab0 = it0 ? (state.subjectCfg[it0.subjKey]?.abbr || it0.subj || '').slice(0, 3) : '';
-              cellContent = `<div style="font-size:7px;opacity:.85">${it0 ? escapeHtml(ab0) : '空'}</div><div style="font-size:13px">↓</div>`;
-              cellClass = 'smg-c smg-to';
-            } else if (cellIds.length) {
-              const id0 = cellIds[0];
-              const it0 = state.items[id0];
-              const sc0 = state.subjectCfg[it0?.subjKey] || {};
-              const col0 = sc0.color || pickColor(it0?.subjKey || '');
-              const ab0 = (sc0.abbr || it0?.subj || '').slice(0, 3);
-              cellStyle = `background:${col0}28;border-left:3px solid ${col0}`;
-              cellContent = escapeHtml(ab0);
-            }
-            if (p > maxPeriod(d)) {
-              rows += `<td class="smg-fd"></td>`;
-            } else {
-              rows += `<td class="${cellClass}" style="${cellStyle}">${cellContent}</td>`;
-            }
-          }
-          rows += `</tr>`;
-        }
-
-        // Build SVG arrow overlay: connect FROM cells to TO cells
-        // We'll add a CSS arrow indicator below the table instead
-        const arrowPairs = [];
+        // この先生のコマについて、出ていくマス・入ってくるマスを集める
+        const outAt = new Map(), inAt = new Map();
+        const push = (mp, k, v) => { if (!mp.has(k)) mp.set(k, []); mp.get(k).push(v); };
+        const pairs = [];
         for (const m of moves) {
           const it = state.items[m.id];
           if (!it || !(it.teas || []).includes(tea)) continue;
           const fromPlc = state.placements[m.id];
-          if (fromPlc) {
-            arrowPairs.push({
-              from: `${DAYJP[fromPlc.day]}${fromPlc.period}限`,
-              to: `${DAYJP[m.day]}${m.period}限`,
-              subj: (state.subjectCfg[it.subjKey]?.abbr || it.subj || '').slice(0, 4)
-            });
-          }
+          const n = numOf.get(m.id);
+          if (fromPlc && fromPlc.day) for (let dp = 0; dp < (it.span || 1); dp++) push(outAt, `${fromPlc.day}|${fromPlc.period + dp}`, { n, it });
+          for (let dp = 0; dp < (it.span || 1); dp++) push(inAt, `${m.day}|${m.period + dp}`, { n, it });
+          pairs.push({ n, name: `${(state.subjectCfg[it.subjKey]?.abbr || it.subj || '').slice(0, 6)}${(it.cls || []).length ? ' ' + compactClsLabel(it.cls) : ''}`, from: fromPlc && fromPlc.day ? `${DAYJP[fromPlc.day]}${fromPlc.period}` : '在庫', to: `${DAYJP[m.day]}${m.period}` });
         }
-        const arrowHTML = arrowPairs.map(ap =>
-          `<div class="smg-arrow-row">` +
-          `<span class="smg-ar-from" style="background:#fef2f2;border:1px solid #ef4444;border-radius:4px;padding:2px 6px;color:#b91c1c;font-size:11px;font-weight:700">` +
-          `↑ ${escapeHtml(ap.subj)} ${escapeHtml(ap.from)}</span>` +
-          `<svg class="smg-ar-svg" viewBox="0 0 48 14" fill="none" style="width:48px;height:14px;flex-shrink:0">` +
-          `<line x1="2" y1="7" x2="40" y2="7" stroke="url(#smgar-grad-${Math.random().toString(36).slice(2,6)})" stroke-width="2.5" stroke-linecap="round"/>` +
-          `<polygon points="36,3 48,7 36,11" fill="#16a34a"/>` +
-          `</svg>` +
-          `<span class="smg-ar-to" style="background:#f0fdf4;border:1px solid #16a34a;border-radius:4px;padding:2px 6px;color:#15803d;font-size:11px;font-weight:700">` +
-          `↓ ${escapeHtml(ap.to)}</span>` +
-          `</div>`
-        ).join('');
 
-        // Compact FROM→TO summary below table
-        const summaryHTML = arrowPairs.map(ap =>
-          `<div class="smg-summary"><span class="smg-from-lbl">↑ ${escapeHtml(ap.subj)} ${escapeHtml(ap.from)}</span>` +
-          `<span class="smg-arr-lbl">▶</span>` +
-          `<span class="smg-to-lbl">${escapeHtml(ap.to)} ↓</span></div>`
+        let rows = '';
+        for (let p = 1; p <= maxP; p++) {
+          rows += `<tr><td class="smg-h">${p}</td>`;
+          for (const d of DAYS) {
+            if (p > maxPeriod(d)) { rows += `<td class="smg-fd"></td>`; continue; }
+            const k = `${d}|${p}`;
+            const outs = outAt.get(k) || [], ins = inAt.get(k) || [];
+            const cellIds = (idx.tea?.[tea]?.[d]?.[p] || []).filter(x => !isSpanFill(x, d, p));
+            let cls = 'smg-c', style = '', content = '';
+            if (ins.length || outs.length) {
+              // 入ってくるコマを主に見せる（入るコマが無ければ、出ていくコマを点線で）
+              const inH = ins.map(x => `<div class="smg-in"><b>${x.n}入</b> ${escapeHtml(lab(x.it))}</div>`).join('');
+              const outH = outs.map(x => `<div class="smg-out"><b>${x.n}出</b> <s>${escapeHtml(lab(x.it))}</s></div>`).join('');
+              cls = 'smg-c ' + (ins.length && outs.length ? 'smg-both' : ins.length ? 'smg-to' : 'smg-from');
+              content = inH + outH;
+            } else if (cellIds.length) {
+              const it0 = state.items[cellIds[0]];
+              const sc0 = state.subjectCfg[it0?.subjKey] || {};
+              const col0 = sc0.color || pickColor(it0?.subjKey || '');
+              style = `background:${col0}28;border-left:3px solid ${col0}`;
+              content = escapeHtml(it0 ? lab(it0) : '');
+            }
+            rows += `<td class="${cls}" style="${style}">${content}</td>`;
+          }
+          rows += `</tr>`;
+        }
+        const summaryHTML = pairs.map(ap =>
+          `<div class="smg-summary"><b class="smg-num">${ap.n}</b><span class="smg-nm">${escapeHtml(ap.name)}</span><span class="smg-from-lbl">${escapeHtml(ap.from)}</span><span class="smg-arr-lbl">→</span><span class="smg-to-lbl">${escapeHtml(ap.to)}</span></div>`
         ).join('');
 
         return `<div class="smg-block">
-        <div class="smg-title smg-title-mover">📋 ${escapeHtml(abbr)}</div>
+        <div class="smg-title smg-title-mover">📋 ${escapeHtml(abbr)} 先生</div>
         <div style="position:relative">
           <table class="smg-table">
             <thead><tr><th></th>${DAYS.map(d => `<th>${DAYJP[d]}</th>`).join('')}</tr></thead>
@@ -1798,82 +1744,7 @@
         </div>
         ${summaryHTML}
       </div>`;
-      }).join('') + (() => {
-        // ── どかされる教員の簡易時間割 ──
-        // 移動先スロットに既存コマがある場合、その教員の時間割を表示
-        try {
-          const moveIdSet = new Set(moves.map(m => m.id));
-          const displacedTeaSet = new Set();
-          for (const m of moves) {
-            const it = state.items[m.id];
-            if (!it) continue;
-            // find items at destination that aren't in moves
-            for (const [pid, plc] of Object.entries(state.placements)) {
-              if (!plc || moveIdSet.has(pid)) continue;
-              if (plc.day === m.day && plc.period === m.period) {
-                const dIt = state.items[pid];
-                if (!dIt) continue;
-                // same class check
-                const sharedCls = (it.cls || []).some(c => (dIt.cls || []).includes(c));
-                if (sharedCls) {
-                  for (const t of dIt.teas || []) displacedTeaSet.add(t);
-                }
-              }
-            }
-          }
-          const displacedTeas = [...displacedTeaSet].filter(t => !teas.includes(t)).slice(0, 2);
-          if (!displacedTeas.length) return '';
-
-          return displacedTeas.map(tea => {
-            const abbr = state.teacherCfg[tea]?.abbr || tea.slice(0, 4);
-            let rows = '';
-            for (let p = 1; p <= maxP; p++) {
-              rows += `<tr><td class="smg-h">${p}</td>`;
-              for (const d of DAYS) {
-                const cellIds = (idx.tea?.[tea]?.[d]?.[p] || []).filter(x => !isSpanFill(x, d, p));
-                // Highlight destination slot (where this teacher's lesson is being displaced FROM)
-                let isDisplacedFrom = false;
-                for (const m of moves) {
-                  if (m.day === d && m.period === p) {
-                    if ((idx.tea?.[tea]?.[d]?.[p] || []).some(pid => !moveIdSet.has(pid))) {
-                      isDisplacedFrom = true;
-                    }
-                  }
-                }
-                let cellContent = '';
-                let cellStyle = '';
-                if (isDisplacedFrom) {
-                  const it0 = cellIds.length ? state.items[cellIds[0]] : null;
-                  const ab0 = it0 ? (state.subjectCfg[it0.subjKey]?.abbr || it0.subj || '').slice(0, 3) : '';
-                  cellStyle = 'background:#f59e0b;color:#fff;font-weight:900;font-size:10px;border:2px solid #b45309;';
-                  cellContent = `<div style="font-size:7px;opacity:.9">${escapeHtml(ab0)}</div><div>退</div>`;
-                } else if (cellIds.length) {
-                  const id0 = cellIds[0];
-                  const it0 = state.items[id0];
-                  const sc0 = state.subjectCfg[it0?.subjKey] || {};
-                  const col0 = sc0.color || pickColor(it0?.subjKey || '');
-                  const ab0 = (sc0.abbr || it0?.subj || '').slice(0, 3);
-                  cellStyle = `background:${col0}20;border-left:3px solid ${col0}`;
-                  cellContent = escapeHtml(ab0);
-                }
-                if (p > maxPeriod(d)) {
-                  rows += `<td class="smg-fd"></td>`;
-                } else {
-                  rows += `<td class="smg-c" style="${cellStyle}">${cellContent}</td>`;
-                }
-              }
-              rows += `</tr>`;
-            }
-            return `<div class="smg-block smg-displaced">
-            <div class="smg-title smg-title-displaced">⬅ ${escapeHtml(abbr)} (退避)</div>
-            <table class="smg-table">
-              <thead><tr><th></th>${DAYS.map(d => `<th>${DAYJP[d]}</th>`).join('')}</tr></thead>
-              <tbody>${rows}</tbody>
-            </table>
-          </div>`;
-          }).join('');
-        } catch (e) { return ''; }
-      })();
+      }).join('') + (teas.length > showTeas.length ? `<div class="smg-more">ほか ${teas.length - showTeas.length} 人の先生も動きます（下の手順に全部出ています）</div>` : '') + '';
     } catch (e) { console.error('buildSugMiniGridHTML error', e); return ''; }
   }
   function isSamePositionSuggestion(s) {
