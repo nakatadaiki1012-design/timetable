@@ -263,6 +263,8 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
     { type: 'sheet-teacher', orient: 'landscape', perPage: 4, color: 'mono', name: 'abbr', showRoom: true },
     { type: 'sheet-all-class', orient: 'landscape', paper: 'A3' },
     { type: 'sheet-all-teacher', orient: 'landscape', paper: 'A4' },
+    { type: 'sheet-all-teacher', orient: 'portrait', paper: 'A3', onePage: true },
+    { type: 'sheet-all-teacher', orient: 'landscape', paper: 'A4', fitOne: true, onePage: true },
   ];
   for (const c of cases) {
     await pg.evaluate((c) => { document.getElementById('print-page-orient').value = c.orient; Object.assign(state.settings.sheet ||= {}, c); }, c);
@@ -275,6 +277,7 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
       return { pages: pages.length, sheets: sheets.length, spill, cut };
     });
     assert(r.pages > 0 && r.sheets > 0, '時間割表が1枚もできない: ' + JSON.stringify(c));
+    if (c.onePage) assert(r.pages === 1, '全員が1枚に入らない: ' + JSON.stringify({ c, r }));
     assert(r.spill === 0, `${c.type} で表が紙からはみ出す: ` + JSON.stringify(r));
     // PDFにして、ページ数が表のページ数と同じ（白紙ページができない）ことを確かめる
     await pg.emulateMedia({ media: 'print' });
@@ -347,6 +350,35 @@ await test('マトリクス印刷（全クラス・全教員・全教室）: 文
   }
   assert(!pg.errs.length, pg.errs.join(' | '));
   await pg.close2();
+});
+
+await test('Excel様式: 出力して取り込み直しても配置が残る・見本の行は取り込まない', async () => {
+  const pg = await openApp();
+  const tmp = path.join(FIX, '..', '.tmp-xl-' + Date.now());
+  fs.mkdirSync(tmp, { recursive: true });
+  try {
+    const where = () => pg.evaluate(() => Object.keys(state.items).filter(i => state.placements[i]?.day).map(i => { const it = state.items[i], p = state.placements[i]; return it.subj + '|' + it.cls.join() + '|' + it.teas.join() + '|' + p.day + p.period; }).sort().join(';'));
+    const w0 = await where(); const n0 = await pg.evaluate(() => state.rawRows.length);
+    await pg.evaluate(() => document.getElementById('tab-input').click()); await pg.waitForTimeout(300);
+    // 実際にボタンを押してメニューから選ぶ（押した瞬間にメニューが閉じないことも確かめる）
+    await pg.click('#btn-xl-template'); await pg.waitForTimeout(150);
+    let [dl] = await Promise.all([pg.waitForEvent('download'), pg.getByText('空の様式').click()]);
+    const blank = path.join(tmp, 'blank.xlsx'); await dl.saveAs(blank);
+    await pg.setInputFiles('#xl-file', blank); await pg.waitForTimeout(400);
+    assert(/取り込める行がありません/.test(await pg.evaluate(() => document.getElementById('modal-msg').innerText)), '見本だけの様式を取り込もうとした');
+    await pg.evaluate(() => document.getElementById('modal-ok').click()); await pg.waitForTimeout(200);
+    await pg.click('#btn-xl-template'); await pg.waitForTimeout(150);
+    [dl] = await Promise.all([pg.waitForEvent('download'), pg.getByText('今のデータ入り').click()]);
+    const data = path.join(tmp, 'data.xlsx'); await dl.saveAs(data);
+    await pg.setInputFiles('#xl-file', data); await pg.waitForTimeout(500);
+    const msg = await pg.evaluate(() => document.getElementById('modal-msg').innerText);
+    assert(msg.includes(`授業 ${n0} 行`), '取り込む行数が違う: ' + msg.slice(0, 80));
+    await pg.evaluate(() => document.getElementById('modal-ok').click()); await pg.waitForTimeout(400);
+    await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(500);
+    assert(!(await pg.evaluate(() => document.getElementById('modal').classList.contains('show'))), '取り込み直しただけなのに「配置が外れる」確認が出た');
+    assert(await where() === w0, '取り込み直したら配置・担当が変わった');
+    assert(!pg.errs.length, pg.errs.join(' | '));
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); await pg.close2(); }
 });
 
 await test('連続・偏り改善で衝突が増えず、元に戻せる', async () => {

@@ -363,6 +363,9 @@
       <div class="toolbar no-print">
         <div class="row gap">
           <button id="btn-add-row" class="btn primary">+ 行追加</button>
+          <button id="btn-xl-template" class="btn secondary" style="background:#217346;color:#fff;border:none" title="Excelで授業の一覧を作るための様式を出力します">📗 Excel様式を出力</button>
+          <button id="btn-xl-import" class="btn secondary" style="background:#217346;color:#fff;border:none" title="様式に書き込んだExcelを取り込みます">📗 Excel読込</button>
+          <input id="xl-file" type="file" accept=".xlsx,.xls,.csv" hidden />
           <button id="btn-import" class="btn secondary">CSV読込</button>
           <input id="csv-file" type="file" accept=".csv" hidden />
           <select id="csv-enc" class="sel" title="Excel由来はShift_JISが多いです">
@@ -832,6 +835,7 @@
         <span class="so-f"><span>用紙</span>
           <label class="so-r"><input type="radio" name="so-paper" data-sk="paper" value="A4">A4</label>
           <label class="so-r"><input type="radio" name="so-paper" data-sk="paper" value="A3">A3</label></span>
+        <label class="so-f so-all so-r" title="行が多くても分けずに、1ページに全部入れます（字は小さくなります）"><input type="checkbox" data-sk="fitOne">必ず1枚に収める</label>
         <span class="so-f so-one"><span>1ページに</span>
           <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="1">1枚</label>
           <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="2">2枚</label>

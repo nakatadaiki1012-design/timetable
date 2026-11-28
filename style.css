@@ -7233,3 +7233,5 @@ body.mobile .im-tea, body.mobile .im-cls { min-width: 0; }
   /* マトリクスは決めた幅を保つ（紙いっぱいに押し縮めると字がはみ出す）。紙に入らない分は印刷直前に全体を縮める */
   .print-area table.t2.print-matrix { width: var(--mx-w) !important; }
 }
+.sheet-opts .so-all { display: none; }
+#view-print.sheet-all .sheet-opts .so-all { display: inline-flex; }

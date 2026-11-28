@@ -84,6 +84,16 @@
     if (btnDataAnalyze) btnDataAnalyze.onclick = () => showDataAnalysis();
     if (btnExport) btnExport.onclick = exportCSV;
     if (btnImport) btnImport.onclick = () => { const f = safeGet('#csv-file'); if (f) f.click(); };
+    // Excelの様式: データがある時は「空の様式」か「今のデータ入り」かを選ぶ
+    $('#btn-xl-template')?.addEventListener('click', (ev) => {
+      if (!(state.rawRows || []).length) { exportExcelTemplate(false); return; }
+      showCtxMenu([
+        { act: 'xl-blank', label: '空の様式（書き方の見本つき）', on: () => exportExcelTemplate(false) },
+        { act: 'xl-data', label: `今のデータ入り（${state.rawRows.length}行）`, on: () => exportExcelTemplate(true) },
+      ], ev.clientX, ev.clientY);
+    });
+    $('#btn-xl-import')?.addEventListener('click', () => $('#xl-file')?.click());
+    $('#xl-file')?.addEventListener('change', async (ev) => { const f = ev.target.files?.[0]; ev.target.value = ''; if (f) await importExcelFile(f); });
     if (csvFile) csvFile.onchange = async (ev) => {
       const f = ev.target.files?.[0]; if (!f) return;
       const enc = $('#csv-enc').value;
