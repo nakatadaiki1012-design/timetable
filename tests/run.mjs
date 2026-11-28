@@ -264,11 +264,22 @@ await test('印刷（すぐ使える時間割表）: A4にはみ出さず、白�
     { type: 'sheet-all-class', orient: 'landscape', paper: 'A3' },
     { type: 'sheet-all-teacher', orient: 'landscape', paper: 'A4' },
     { type: 'sheet-all-teacher', orient: 'portrait', paper: 'A3', onePage: true },
+    { type: 'sheet-class', orient: 'portrait', paper: 'A3', perPage: 4 },
+    { type: 'class-paged', orient: 'portrait', paper: 'A3', legacy: true },
     { type: 'sheet-all-teacher', orient: 'landscape', paper: 'A4', fitOne: true, onePage: true },
   ];
   for (const c of cases) {
-    await pg.evaluate((c) => { document.getElementById('print-page-orient').value = c.orient; Object.assign(state.settings.sheet ||= {}, c); }, c);
+    await pg.evaluate((c) => { document.getElementById('print-page-orient').value = (c.paper === 'A3' ? 'a3-' : '') + c.orient; Object.assign(state.settings.sheet ||= {}, c); }, c);
     await pg.selectOption('#print-type', c.type); await pg.waitForTimeout(400);
+    if (c.legacy) {
+      // 従来の印刷でも、選んだ用紙（A3 縦）でPDFになること
+      await pg.emulateMedia({ media: 'print' });
+      const pdf0 = (await pg.pdf({ preferCSSPageSize: true, pageRanges: '1' })).toString('latin1');
+      await pg.emulateMedia({ media: 'screen' });
+      const mb = /MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)/.exec(pdf0);
+      assert(mb && Math.abs(+mb[1] - 841.9) < 3 && Math.abs(+mb[2] - 1190.6) < 3, '従来の印刷がA3縦にならない: ' + (mb ? mb[1] + 'x' + mb[2] : 'なし'));
+      continue;
+    }
     const r = await pg.evaluate(() => {
       const pages = [...document.querySelectorAll('.ks-page')];
       const sheets = [...document.querySelectorAll('.ks-sheet')];

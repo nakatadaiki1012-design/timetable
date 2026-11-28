@@ -13677,6 +13677,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     { v: 'dept', l: '教科' },
     { v: 'span', l: '2連表示' },
   ];
+  // 用紙の選択（A4 横/縦・A3 横/縦）から、向きと大きさを取り出す
+  function printOrient() { return /portrait/.test($('#print-page-orient')?.value || '') ? 'portrait' : 'landscape'; }
+  function printPaperSize() { return /^a3/.test($('#print-page-orient')?.value || '') ? 'A3' : 'A4'; }
   function ensurePrintLayoutDefaults() {
     state.ui.printLayout ||= { l1: ['subjAbbr', 'teaAbbr', ''], l2: ['room', '', ''] };
   }
@@ -13767,8 +13770,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (!blocks.length) { flash('先に印刷内容を表示してください'); return; }
     // 既存のオーバーレイを除去
     document.getElementById('print-overview-overlay')?.remove();
-    const orient = document.getElementById('print-page-orient')?.value || 'landscape';
-    const pageW = orient === 'portrait' ? 794 : 1123; // A4 96dpi 相当
+    const orient = printOrient();
+    const pageW = (orient === 'portrait' ? 794 : 1123) * (printPaperSize() === 'A3' ? 1.414 : 1); // 96dpi 相当
     const thumbW = 300;
     const scale = thumbW / pageW;
 
@@ -13885,10 +13888,10 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const colW = colWidths[clamp(baseIdx + colStep, 0, colWidths.length - 1)];
     const wl = $('#print-col-label'); if (wl) wl.textContent = stepToLabel(colStep);
     // page orientation
-    const orient = $('#print-page-orient')?.value || 'landscape';
+    const orient = printOrient();
     let pStyle = document.getElementById('print-page-style');
     if (!pStyle) { pStyle = document.createElement('style'); pStyle.id = 'print-page-style'; document.head.appendChild(pStyle); }
-    pStyle.textContent = `@media print { @page { size: A4 ${orient}; } }`;
+    pStyle.textContent = `@media print { @page { size: ${printPaperSize()} ${orient}; } }`;
 
     // v45.2: align + font family — UI select の値を state に読み込む（逆向きにしない）
     // state → UI への上書きは初回のみ（_initialized フラグで管理）
@@ -15101,8 +15104,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const o = sheetOpts();
     const kind = (type === 'sheet-teacher' || type === 'sheet-all-teacher') ? 'teacher' : 'class';
     const isAll = type === 'sheet-all-class' || type === 'sheet-all-teacher';
-    const orient = $('#print-page-orient')?.value || 'landscape';
-    const A3 = o.paper === 'A3';
+    const orient = printOrient();
+    const A3 = printPaperSize() === 'A3';
     const S1 = A3 ? 420 : 297, S2 = A3 ? 297 : 210;
     const PW = orient === 'landscape' ? S1 : S2, PH = orient === 'landscape' ? S2 : S1, M = 10, G = 6;
     const pageStyle = () => {
@@ -15130,7 +15133,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       area.innerHTML = html || '<div class="card">印刷する時間割がありません</div>';
       pageStyle();
       const info = document.getElementById('sheet-count');
-      const hint = pages > 1 ? (kind === 'teacher' && !(A3 && orient === 'portrait') ? '（A3の縦にすると1枚に入りやすくなります）' : !A3 ? '（A3にすると枚数が減ります）' : '') : '';
+      const hint = pages > 1 ? (kind === 'teacher' && !(A3 && orient === 'portrait') ? '（用紙を「A3 縦」にすると1枚に入りやすくなります）' : !A3 ? '（用紙をA3にすると枚数が減ります）' : '') : '';
       if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${hint}`;
       return;
     }
@@ -17674,8 +17677,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     $('#btn-print').onclick = () => window.print();
     // 印刷する時、全クラス／全教員マトリクスが紙より横に長ければ、表全体を同じ割合で縮めて紙の幅に収める（右側が切れないように）
     window.addEventListener('beforeprint', () => {
-      const orient = $('#print-page-orient')?.value || 'landscape';
-      const paperPx = (orient === 'landscape' ? 277 : 190) * 96 / 25.4; // A4 の印刷できる幅（左右の余白を除く）
+      const orient = printOrient();
+      const a3 = printPaperSize() === 'A3';
+      const paperPx = (orient === 'landscape' ? (a3 ? 400 : 277) : (a3 ? 277 : 190)) * 96 / 25.4; // 印刷できる幅（左右の余白を除く）
       document.querySelectorAll('.print-matrix-wrap').forEach(w => {
         const t = w.querySelector('table'); if (!t) return;
         const tw = parseFloat(t.style.width) || t.scrollWidth;
@@ -17725,6 +17729,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     $('#btn-print-overview')?.addEventListener('click', () => { try { showPrintOverview(); } catch (e) { console.error(e); flash('プレビュー生成でエラー'); } });
     $('#print-type').onchange = renderPrint;
     // 印刷の向き・種別を永続化（リロードで既定値に戻らないように）
+    // 以前の「用紙: A3」の設定（時間割表の設定欄にあった）を、新しい用紙の選択に引き継ぐ
+    try { if (state.settings.sheet && state.settings.sheet.paper === 'A3' && !/^a3/.test(state.settings.printOrient || '')) { state.settings.printOrient = 'a3-' + (state.settings.printOrient === 'portrait' ? 'portrait' : 'landscape'); } if (state.settings.sheet) delete state.settings.sheet.paper; } catch (e) { }
     [['print-page-orient', 'printOrient'], ['print-type', 'printType']].forEach(([id, key]) => {
       const el = $('#' + id); if (!el) return;
       if (state.settings[key] != null && state.settings[key] !== '') el.value = state.settings[key];

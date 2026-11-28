@@ -1006,8 +1006,9 @@
     $('#btn-print').onclick = () => window.print();
     // 印刷する時、全クラス／全教員マトリクスが紙より横に長ければ、表全体を同じ割合で縮めて紙の幅に収める（右側が切れないように）
     window.addEventListener('beforeprint', () => {
-      const orient = $('#print-page-orient')?.value || 'landscape';
-      const paperPx = (orient === 'landscape' ? 277 : 190) * 96 / 25.4; // A4 の印刷できる幅（左右の余白を除く）
+      const orient = printOrient();
+      const a3 = printPaperSize() === 'A3';
+      const paperPx = (orient === 'landscape' ? (a3 ? 400 : 277) : (a3 ? 277 : 190)) * 96 / 25.4; // 印刷できる幅（左右の余白を除く）
       document.querySelectorAll('.print-matrix-wrap').forEach(w => {
         const t = w.querySelector('table'); if (!t) return;
         const tw = parseFloat(t.style.width) || t.scrollWidth;
@@ -1057,6 +1058,8 @@
     $('#btn-print-overview')?.addEventListener('click', () => { try { showPrintOverview(); } catch (e) { console.error(e); flash('プレビュー生成でエラー'); } });
     $('#print-type').onchange = renderPrint;
     // 印刷の向き・種別を永続化（リロードで既定値に戻らないように）
+    // 以前の「用紙: A3」の設定（時間割表の設定欄にあった）を、新しい用紙の選択に引き継ぐ
+    try { if (state.settings.sheet && state.settings.sheet.paper === 'A3' && !/^a3/.test(state.settings.printOrient || '')) { state.settings.printOrient = 'a3-' + (state.settings.printOrient === 'portrait' ? 'portrait' : 'landscape'); } if (state.settings.sheet) delete state.settings.sheet.paper; } catch (e) { }
     [['print-page-orient', 'printOrient'], ['print-type', 'printType']].forEach(([id, key]) => {
       const el = $('#' + id); if (!el) return;
       if (state.settings[key] != null && state.settings[key] !== '') el.value = state.settings[key];
