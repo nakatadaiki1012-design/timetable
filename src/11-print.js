@@ -1198,7 +1198,7 @@
      A4 にぴったり収まる表を、選択肢を数個選ぶだけで作る。
      文字の大きさは紙の大きさとコマ数から自動で決める（科目名が長いマスだけ自動で縮める）。
   ======================= */
-  const SHEET_DEFAULTS = { paper: 'A4', perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
+  const SHEET_DEFAULTS = { paper: 'A4', fitOne: false, perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
   function sheetOpts() {
     state.settings.sheet = { ...SHEET_DEFAULTS, ...(state.settings.sheet || {}) };
     return state.settings.sheet;
@@ -1394,9 +1394,9 @@
     const rowH = (h - headH - footH - hdrH - 1.5) / keys.length;
     const textLen = (t) => [...String(t)].reduce((a, c) => a + (/[ -~｡-ﾟ]/.test(c) ? 0.55 : 1), 0);
     const fit = (t, base, wmm) => Math.max(base * 0.45, Math.min(base, (wmm * 0.9) / Math.max(1, textLen(t))));
-    const mainBase = Math.max(1.8, Math.min(rowH * 0.44, cw * 0.36, 5));
-    const subBase = Math.max(1.4, Math.min(rowH * 0.27, mainBase * 0.72));
-    const showSub = rowH >= 6.2; // 行が低い時は2行目（先生・科目）を出さない
+    const mainBase = Math.max(1.8, Math.min(rowH * 0.46, cw * 0.36, 5));
+    const subBase = Math.max(1.4, Math.min(rowH * 0.3, mainBase * 0.72));
+    const showSub = rowH >= 4.6; // 行がとても低い時だけ2行目（先生・科目）を出さない
     const color = o.color === 'color';
     const cellFor = (ids, span) => {
       if (!ids.length) return '';
@@ -1483,8 +1483,9 @@
       if (kind === 'class' && keysAll.some(k => /^\d+-\d+$/.test(k))) keysAll = keysAll.filter(k => /^\d+-\d+$/.test(k));
       const w = PW - M * 2, h = PH - M * 2;
       const usable = h - Math.min(14, Math.max(8, h * 0.05)) - 3.5 - Math.min(12, Math.max(7, h * 0.045)) - 1.5;
-      const minRow = 6.5; // これより低いと字が小さすぎる
-      const pages = Math.max(1, Math.ceil(keysAll.length * minRow / usable));
+      const minRow = 5.2; // これより低いと字が小さすぎる（A3縦なら先生70人ほどまで1枚に入る）
+      // 「1枚に収める」を選んだ時は、行がどれだけ低くなっても1ページにする
+      const pages = o.fitOne ? 1 : Math.max(1, Math.ceil(keysAll.length * minRow / usable));
       const per = Math.ceil(keysAll.length / pages);
       let html = '';
       for (let i = 0; i < pages; i++) {
@@ -1494,7 +1495,8 @@
       area.innerHTML = html || '<div class="card">印刷する時間割がありません</div>';
       pageStyle();
       const info = document.getElementById('sheet-count');
-      if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${pages > 1 && !A3 ? '（A3にすると枚数が減ります）' : ''}`;
+      const hint = pages > 1 ? (kind === 'teacher' && !(A3 && orient === 'portrait') ? '（A3の縦にすると1枚に入りやすくなります）' : !A3 ? '（A3にすると枚数が減ります）' : '') : '';
+      if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${hint}`;
       return;
     }
     const per = [1, 2, 4].includes(Number(o.perPage)) ? Number(o.perPage) : 1;

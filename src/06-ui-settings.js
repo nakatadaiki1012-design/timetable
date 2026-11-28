@@ -15,6 +15,7 @@
       return `<div class="item" data-act="${escapeAttr(it.act)}">${escapeHtml(it.label)}</div>`;
     }).join('');
     m.style.display = 'block';
+    _ctxOpenedAt = Date.now();
     // position
     const vw = window.innerWidth, vh = window.innerHeight;
     const rect = m.getBoundingClientRect();
@@ -30,7 +31,9 @@
       };
     });
   }
-  window.addEventListener('click', () => hideCtxMenu());
+  // ボタンを押して開いたメニューが、その同じクリックで閉じてしまわないようにする
+  let _ctxOpenedAt = 0;
+  window.addEventListener('click', () => { if (Date.now() - _ctxOpenedAt < 80) return; hideCtxMenu(); });
   window.addEventListener('scroll', () => hideCtxMenu(), true);
 
   /* =======================

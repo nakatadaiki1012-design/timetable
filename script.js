@@ -4270,6 +4270,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       return `<div class="item" data-act="${escapeAttr(it.act)}">${escapeHtml(it.label)}</div>`;
     }).join('');
     m.style.display = 'block';
+    _ctxOpenedAt = Date.now();
     // position
     const vw = window.innerWidth, vh = window.innerHeight;
     const rect = m.getBoundingClientRect();
@@ -4285,7 +4286,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       };
     });
   }
-  window.addEventListener('click', () => hideCtxMenu());
+  // ボタンを押して開いたメニューが、その同じクリックで閉じてしまわないようにする
+  let _ctxOpenedAt = 0;
+  window.addEventListener('click', () => { if (Date.now() - _ctxOpenedAt < 80) return; hideCtxMenu(); });
   window.addEventListener('scroll', () => hideCtxMenu(), true);
 
   /* =======================
@@ -9635,6 +9638,137 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     renderInputTable();
   }
 
+  /* =======================
+     Excel の取り込み様式（最初のコマ設定をExcelで作って取り込む）
+  ======================= */
+  const XL_COLS = [
+    { k: 'cls', h: 'クラス', w: 12, alias: ['クラス', '組', '学級'], note: '必須。合同は「1-1,1-2」のようにカンマで区切る' },
+    { k: 'subj', h: '科目', w: 22, alias: ['科目', '科目名', '授業'], note: '必須' },
+    { k: 'dept', h: '教科', w: 10, alias: ['教科'], note: '国語・数学など（色分けに使う。空でもよい）' },
+    { k: 'tea', h: '教員', w: 16, alias: ['教員', '先生', '担当', '担当者', '教員名'], note: '複数の時は「佐藤,鈴木」のようにカンマで区切る' },
+    { k: 'room', h: '教室', w: 12, alias: ['教室', '場所'], note: '空でもよい' },
+    { k: 'count', h: '週コマ数', w: 9, alias: ['週コマ数', 'コマ数', '時数', '週時数', '単位数'], note: '週に何コマあるか（空なら1）' },
+    { k: 'dbl', h: '2連', w: 6, alias: ['2連', '２連', '2時間続き', '連続'], note: '2時間続きの授業は ○' },
+    { k: 'parallel', h: '並列', w: 6, alias: ['並列', '同時展開'], note: '同じ時間に並べて開く授業は ○' },
+    { k: 'subjAbbr', h: '科目略', w: 10, alias: ['科目略', '科目略称', '略称'], note: 'コマに出す短い名前（空なら自動）' },
+    { k: 'teaAbbr', h: '教員略', w: 10, alias: ['教員略', '教員略称'], note: '空なら自動' },
+  ];
+  const XL_EXAMPLE_MARK = '（例）';
+  function exportExcelTemplate(withData) {
+    _ensureXLSX(() => {
+      const wb = XLSX.utils.book_new();
+      const rows = [XL_COLS.map(c => c.h)];
+      const yes = (v) => v ? '○' : '';
+      if (withData && (state.rawRows || []).length) {
+        for (const r of state.rawRows) rows.push([r.cls || '', r.subj || '', r.dept || '', r.tea || '', r.room || '', Number(r.count) || 1, yes(r.dbl || Number(r.span) === 2), yes(r.parallel), r.subjAbbr || '', r.teaAbbr || '']);
+      } else {
+        // 書き方の見本（先頭に「（例）」がある行は取り込まれない）
+        rows.push([XL_EXAMPLE_MARK + '1-1', '現代の国語', '国語', '佐藤', '', 2, '', '', '現国', '']);
+        rows.push([XL_EXAMPLE_MARK + '1-1', '体育', '保健体育', '鈴木,高橋', '体育館', 3, '', '', '', '']);
+        rows.push([XL_EXAMPLE_MARK + '1-1,1-2', '美術Ⅰ', '芸術', '田中', '美術室', 1, '○', '', '美Ⅰ', '']);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws['!cols'] = XL_COLS.map(c => ({ wch: c.w }));
+      ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+      XLSX.utils.book_append_sheet(wb, ws, 'コマ入力');
+      const help = [
+        ['駒入盤 コマ入力の様式'], [''],
+        ['使い方'],
+        ['1. 「コマ入力」のシートに、1行に1つの授業を書きます（1行目の見出しは変えないでください）。'],
+        ['2. 保存して、駒入盤の「1 データ登録」→「📗 Excel読込」で、このファイルを選びます。'],
+        ['3. 取り込む前に、行数・クラス数・先生の数・気になる点の確認が出ます。'],
+        ['・「（例）」で始まる行は見本です。取り込まれません（消しても残してもかまいません）。'],
+        ['・列の順番は入れ替えてもかまいません。見出しの名前で判断します。'],
+        ['・後で直して取り込み直す時は「置き換える」を選ぶと、クラスと科目が同じ行の配置はそのまま残ります。'],
+        [''], ['列の説明'], ['列', '書くこと'],
+        ...XL_COLS.map(c => [c.h, c.note]),
+      ];
+      const wh = XLSX.utils.aoa_to_sheet(help);
+      wh['!cols'] = [{ wch: 14 }, { wch: 90 }];
+      XLSX.utils.book_append_sheet(wb, wh, '書き方');
+      _xlsxDownload(wb, withData ? 'コマ入力_現在のデータ.xlsx' : 'コマ入力_様式.xlsx');
+      flash(withData ? '今のデータをExcelで出力しました（直して「📗 Excel読込」で取り込めます）' : 'Excelの様式を出力しました。書き込んで「📗 Excel読込」で取り込めます', 6000);
+    });
+  }
+  // Excel/CSV の表（配列の配列）を、取り込む行に直す。見出しの名前で列を探す
+  function parseSheetRows(aoa) {
+    const norm = (v) => String(v == null ? '' : v).replace(/[\s　]+/g, '').replace(/[Ａ-Ｚａ-ｚ０-９]/g, c => String.fromCharCode(c.charCodeAt(0) - 0xFEE0));
+    let hi = -1, map = {};
+    for (let i = 0; i < Math.min(aoa.length, 15); i++) {
+      const m = {};
+      (aoa[i] || []).forEach((v, j) => { const t = norm(v); const c = XL_COLS.find(c => c.alias.some(a => norm(a) === t)); if (c && m[c.k] === undefined) m[c.k] = j; });
+      if (m.cls !== undefined && m.subj !== undefined) { hi = i; map = m; break; }
+    }
+    if (hi < 0) return { error: '見出しの行が見つかりません。1行目に「クラス」「科目」の列が必要です（様式を出力して使ってください）。' };
+    const truthy = (v) => /^(1|2|○|〇|◯|o|y|yes|true|はい|有|あり|✓|✔)$/i.test(norm(v));
+    const out = [], skipped = [];
+    for (let i = hi + 1; i < aoa.length; i++) {
+      const a = aoa[i] || [];
+      const g = (k) => map[k] === undefined ? '' : String(a[map[k]] == null ? '' : a[map[k]]).trim();
+      const cls = g('cls'), subj = g('subj');
+      if (!cls && !subj && !g('tea')) continue;               // 空行
+      if (cls.startsWith(XL_EXAMPLE_MARK) || cls.startsWith('(例)') || cls.startsWith('例)')) continue; // 見本
+      if (!cls || !subj) { skipped.push(`${i + 1}行目: ${!cls ? 'クラス' : '科目'}が空`); continue; }
+      const cnt = parseInt(norm(g('count')), 10);
+      const fix = (v) => v.replace(/[、，;；／\/・]/g, ',').replace(/\s*,\s*/g, ',');
+      out.push({ _id: null, cls: fix(cls).replace(/・/g, ','), subj, subjAbbr: g('subjAbbr'), dept: g('dept'), tea: fix(g('tea')), teaAbbr: g('teaAbbr'), room: g('room').replace(/[、，]/g, ','), count: cnt > 0 ? Math.min(cnt, 40) : 1, dbl: truthy(g('dbl')), parallel: truthy(g('parallel')) });
+    }
+    return { rows: out, skipped };
+  }
+  async function importExcelFile(file) {
+    let aoa;
+    try {
+      if (/\.csv$/i.test(file.name)) aoa = parseCSV(await readFileText(file, $('#csv-enc')?.value || 'auto'));
+      else {
+        await new Promise(res => _ensureXLSX(res));
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+        const name = wb.SheetNames.includes('コマ入力') ? 'コマ入力' : wb.SheetNames[0];
+        aoa = XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, defval: '', raw: false });
+      }
+    } catch (e) { console.error(e); showModal('読み込めませんでした', 'ファイルを開けませんでした。Excel（.xlsx）かCSVのファイルを選んでください。\n' + (e.message || '')); return; }
+    const res = parseSheetRows(aoa);
+    if (res.error) { showModal('読み込めませんでした', res.error); return; }
+    if (!res.rows.length) { showModal('読み込めませんでした', '取り込める行がありません（「（例）」の行は見本なので取り込まれません）。'); return; }
+    const rows = res.rows;
+    const clsSet = new Set(), teaSet = new Set(); let koma = 0;
+    for (const r of rows) { splitList(r.cls).forEach(c => clsSet.add(c)); splitList(r.tea).forEach(t => teaSet.add(t)); koma += r.count * (r.dbl ? 2 : 1); }
+    // 気になる点
+    const warns = [...res.skipped.map(x => x + '（飛ばします）')];
+    const noTea = rows.filter(r => !r.tea).length; if (noTea) warns.push(`先生が空の行が ${noTea} 行あります`);
+    const seen = new Map(); let dup = 0;
+    for (const r of rows) { const k = r.cls + '|' + r.subj + '|' + r.tea; if (seen.has(k)) dup++; seen.set(k, 1); } if (dup) warns.push(`クラス・科目・先生が同じ行が ${dup} 組あります（分けて書いた場合は問題ありません）`);
+    const perCls = {}; for (const r of rows) for (const c of splitList(r.cls)) perCls[c] = (perCls[c] || 0) + r.count * (r.dbl ? 2 : 1);
+    const cap = DAYS.reduce((a, d) => a + maxPeriod(d), 0);
+    const over = Object.entries(perCls).filter(([, n]) => n > cap).map(([c, n]) => `${c}（${n}コマ）`); if (over.length) warns.push(`週のコマ数（${cap}）を超えるクラス: ${over.slice(0, 6).join('、')}`);
+    const has = (state.rawRows || []).length;
+    const html = `<div style="line-height:1.8"><b>${escapeHtml(file.name)}</b><br>授業 <b>${rows.length}</b> 行 ／ クラス <b>${clsSet.size}</b> ／ 先生 <b>${teaSet.size}</b> 人 ／ 週の合計 <b>${koma}</b> コマ`
+      + (warns.length ? `<div style="margin-top:8px;padding:8px 10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:12px;color:#92400e">気になる点<br>・${warns.slice(0, 8).map(escapeHtml).join('<br>・')}${warns.length > 8 ? `<br>ほか${warns.length - 8}件` : ''}</div>` : '<div style="margin-top:6px;color:#047857;font-size:12px">✓ 気になる点はありません</div>')
+      + (has ? `<div style="margin-top:10px"><label style="display:block"><input type="radio" name="xl-mode" value="replace" checked> 今の ${has} 行と<b>置き換える</b>（クラスと科目が同じ行は、作成画面の配置をそのまま残します）</label><label style="display:block"><input type="radio" name="xl-mode" value="append"> 今の行の<b>後ろに追加</b>する</label></div>` : '') + '</div>';
+    let mode = has ? 'replace' : 'append';
+    showModalHTML('📗 Excelから取り込む', html, () => {
+      pushHistory('excelImport');
+      if (mode === 'replace') {
+        // 置き換え: クラスと科目が同じ行は、前の行の番号を引き継ぐ（番号が同じなら配置が残る）
+        const pool = new Map();
+        for (const r of state.rawRows) { const k = splitList(r.cls).join(',') + '|' + (r.subj || '').trim(); if (!pool.has(k)) pool.set(k, []); pool.get(k).push(r); }
+        for (const r of rows) {
+          const list = pool.get(splitList(r.cls).join(',') + '|' + r.subj) || [];
+          const j = list.findIndex(o => (o.tea || '') === r.tea); // 先生も同じ行を優先
+          const old = list.splice(j >= 0 ? j : 0, 1)[0];
+          if (old) { r._id = old._id; if (old.simul) r.simul = old.simul; if (old.realSubj) r.realSubj = old.realSubj; }
+        }
+        state.rawRows = rows;
+      } else state.rawRows.push(...rows);
+      state.rawRows.forEach(ensureRowId);
+      markDirty('excelImport');
+      rebuildMastersFromRaw();
+      renderInputTable();
+      flash(`Excelから ${rows.length} 行を取り込みました。「作成画面へ反映」で時間割づくりを始められます`, 6000);
+    }, '取り込む', 'キャンセル', () => {
+      document.querySelectorAll('input[name="xl-mode"]').forEach(r => r.addEventListener('change', () => { if (r.checked) mode = r.value; }));
+    });
+  }
+
   function exportCSV() {
     const header = ['クラス', '科目', '科目略', '教科', '教員', '教員略', '教室', 'コマ数', '2連'];
     const lines = [];
@@ -14709,7 +14843,7 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
      A4 にぴったり収まる表を、選択肢を数個選ぶだけで作る。
      文字の大きさは紙の大きさとコマ数から自動で決める（科目名が長いマスだけ自動で縮める）。
   ======================= */
-  const SHEET_DEFAULTS = { paper: 'A4', perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
+  const SHEET_DEFAULTS = { paper: 'A4', fitOne: false, perPage: 1, color: 'color', name: 'auto', showTea: true, showRoom: false, showCls: true, showLunch: true, title: '', term: '', footer: '', grid: 'bold' };
   function sheetOpts() {
     state.settings.sheet = { ...SHEET_DEFAULTS, ...(state.settings.sheet || {}) };
     return state.settings.sheet;
@@ -14905,9 +15039,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     const rowH = (h - headH - footH - hdrH - 1.5) / keys.length;
     const textLen = (t) => [...String(t)].reduce((a, c) => a + (/[ -~｡-ﾟ]/.test(c) ? 0.55 : 1), 0);
     const fit = (t, base, wmm) => Math.max(base * 0.45, Math.min(base, (wmm * 0.9) / Math.max(1, textLen(t))));
-    const mainBase = Math.max(1.8, Math.min(rowH * 0.44, cw * 0.36, 5));
-    const subBase = Math.max(1.4, Math.min(rowH * 0.27, mainBase * 0.72));
-    const showSub = rowH >= 6.2; // 行が低い時は2行目（先生・科目）を出さない
+    const mainBase = Math.max(1.8, Math.min(rowH * 0.46, cw * 0.36, 5));
+    const subBase = Math.max(1.4, Math.min(rowH * 0.3, mainBase * 0.72));
+    const showSub = rowH >= 4.6; // 行がとても低い時だけ2行目（先生・科目）を出さない
     const color = o.color === 'color';
     const cellFor = (ids, span) => {
       if (!ids.length) return '';
@@ -14994,8 +15128,9 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       if (kind === 'class' && keysAll.some(k => /^\d+-\d+$/.test(k))) keysAll = keysAll.filter(k => /^\d+-\d+$/.test(k));
       const w = PW - M * 2, h = PH - M * 2;
       const usable = h - Math.min(14, Math.max(8, h * 0.05)) - 3.5 - Math.min(12, Math.max(7, h * 0.045)) - 1.5;
-      const minRow = 6.5; // これより低いと字が小さすぎる
-      const pages = Math.max(1, Math.ceil(keysAll.length * minRow / usable));
+      const minRow = 5.2; // これより低いと字が小さすぎる（A3縦なら先生70人ほどまで1枚に入る）
+      // 「1枚に収める」を選んだ時は、行がどれだけ低くなっても1ページにする
+      const pages = o.fitOne ? 1 : Math.max(1, Math.ceil(keysAll.length * minRow / usable));
       const per = Math.ceil(keysAll.length / pages);
       let html = '';
       for (let i = 0; i < pages; i++) {
@@ -15005,7 +15140,8 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
       area.innerHTML = html || '<div class="card">印刷する時間割がありません</div>';
       pageStyle();
       const info = document.getElementById('sheet-count');
-      if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${pages > 1 && !A3 ? '（A3にすると枚数が減ります）' : ''}`;
+      const hint = pages > 1 ? (kind === 'teacher' && !(A3 && orient === 'portrait') ? '（A3の縦にすると1枚に入りやすくなります）' : !A3 ? '（A3にすると枚数が減ります）' : '') : '';
+      if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${hint}`;
       return;
     }
     const per = [1, 2, 4].includes(Number(o.perPage)) ? Number(o.perPage) : 1;
@@ -16626,6 +16762,16 @@ var calculatePlacementDifficulty = (typeof calculatePlacementDifficulty === 'fun
     if (btnDataAnalyze) btnDataAnalyze.onclick = () => showDataAnalysis();
     if (btnExport) btnExport.onclick = exportCSV;
     if (btnImport) btnImport.onclick = () => { const f = safeGet('#csv-file'); if (f) f.click(); };
+    // Excelの様式: データがある時は「空の様式」か「今のデータ入り」かを選ぶ
+    $('#btn-xl-template')?.addEventListener('click', (ev) => {
+      if (!(state.rawRows || []).length) { exportExcelTemplate(false); return; }
+      showCtxMenu([
+        { act: 'xl-blank', label: '空の様式（書き方の見本つき）', on: () => exportExcelTemplate(false) },
+        { act: 'xl-data', label: `今のデータ入り（${state.rawRows.length}行）`, on: () => exportExcelTemplate(true) },
+      ], ev.clientX, ev.clientY);
+    });
+    $('#btn-xl-import')?.addEventListener('click', () => $('#xl-file')?.click());
+    $('#xl-file')?.addEventListener('change', async (ev) => { const f = ev.target.files?.[0]; ev.target.value = ''; if (f) await importExcelFile(f); });
     if (csvFile) csvFile.onchange = async (ev) => {
       const f = ev.target.files?.[0]; if (!f) return;
       const enc = $('#csv-enc').value;
