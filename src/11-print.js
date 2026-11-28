@@ -42,6 +42,9 @@
     { v: 'dept', l: '教科' },
     { v: 'span', l: '2連表示' },
   ];
+  // 用紙の選択（A4 横/縦・A3 横/縦）から、向きと大きさを取り出す
+  function printOrient() { return /portrait/.test($('#print-page-orient')?.value || '') ? 'portrait' : 'landscape'; }
+  function printPaperSize() { return /^a3/.test($('#print-page-orient')?.value || '') ? 'A3' : 'A4'; }
   function ensurePrintLayoutDefaults() {
     state.ui.printLayout ||= { l1: ['subjAbbr', 'teaAbbr', ''], l2: ['room', '', ''] };
   }
@@ -132,8 +135,8 @@
     if (!blocks.length) { flash('先に印刷内容を表示してください'); return; }
     // 既存のオーバーレイを除去
     document.getElementById('print-overview-overlay')?.remove();
-    const orient = document.getElementById('print-page-orient')?.value || 'landscape';
-    const pageW = orient === 'portrait' ? 794 : 1123; // A4 96dpi 相当
+    const orient = printOrient();
+    const pageW = (orient === 'portrait' ? 794 : 1123) * (printPaperSize() === 'A3' ? 1.414 : 1); // 96dpi 相当
     const thumbW = 300;
     const scale = thumbW / pageW;
 
@@ -250,10 +253,10 @@
     const colW = colWidths[clamp(baseIdx + colStep, 0, colWidths.length - 1)];
     const wl = $('#print-col-label'); if (wl) wl.textContent = stepToLabel(colStep);
     // page orientation
-    const orient = $('#print-page-orient')?.value || 'landscape';
+    const orient = printOrient();
     let pStyle = document.getElementById('print-page-style');
     if (!pStyle) { pStyle = document.createElement('style'); pStyle.id = 'print-page-style'; document.head.appendChild(pStyle); }
-    pStyle.textContent = `@media print { @page { size: A4 ${orient}; } }`;
+    pStyle.textContent = `@media print { @page { size: ${printPaperSize()} ${orient}; } }`;
 
     // v45.2: align + font family — UI select の値を state に読み込む（逆向きにしない）
     // state → UI への上書きは初回のみ（_initialized フラグで管理）
@@ -1466,8 +1469,8 @@
     const o = sheetOpts();
     const kind = (type === 'sheet-teacher' || type === 'sheet-all-teacher') ? 'teacher' : 'class';
     const isAll = type === 'sheet-all-class' || type === 'sheet-all-teacher';
-    const orient = $('#print-page-orient')?.value || 'landscape';
-    const A3 = o.paper === 'A3';
+    const orient = printOrient();
+    const A3 = printPaperSize() === 'A3';
     const S1 = A3 ? 420 : 297, S2 = A3 ? 297 : 210;
     const PW = orient === 'landscape' ? S1 : S2, PH = orient === 'landscape' ? S2 : S1, M = 10, G = 6;
     const pageStyle = () => {
@@ -1495,7 +1498,7 @@
       area.innerHTML = html || '<div class="card">印刷する時間割がありません</div>';
       pageStyle();
       const info = document.getElementById('sheet-count');
-      const hint = pages > 1 ? (kind === 'teacher' && !(A3 && orient === 'portrait') ? '（A3の縦にすると1枚に入りやすくなります）' : !A3 ? '（A3にすると枚数が減ります）' : '') : '';
+      const hint = pages > 1 ? (kind === 'teacher' && !(A3 && orient === 'portrait') ? '（用紙を「A3 縦」にすると1枚に入りやすくなります）' : !A3 ? '（用紙をA3にすると枚数が減ります）' : '') : '';
       if (info) info.textContent = `${keysAll.length}${kind === 'class' ? 'クラス' : '人'}・${pages}ページ${hint}`;
       return;
     }

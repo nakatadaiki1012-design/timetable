@@ -735,6 +735,8 @@
         <select id="print-page-orient" class="sel mini keep">
           <option value="landscape">A4 横</option>
           <option value="portrait">A4 縦</option>
+          <option value="a3-landscape">A3 横</option>
+          <option value="a3-portrait">A3 縦</option>
         </select>
         <select id="print-type" class="sel keep">
           <optgroup label="すぐ使える時間割表">
@@ -832,9 +834,6 @@
 
       <div id="sheet-opts" class="sheet-opts no-print">
         <label class="so-f so-one"><span>印刷するもの</span><select id="sheet-only" class="sel mini"></select></label>
-        <span class="so-f"><span>用紙</span>
-          <label class="so-r"><input type="radio" name="so-paper" data-sk="paper" value="A4">A4</label>
-          <label class="so-r"><input type="radio" name="so-paper" data-sk="paper" value="A3">A3</label></span>
         <label class="so-f so-all so-r" title="行が多くても分けずに、1ページに全部入れます（字は小さくなります）"><input type="checkbox" data-sk="fitOne">必ず1枚に収める</label>
         <span class="so-f so-one"><span>1ページに</span>
           <label class="so-r"><input type="radio" name="so-per" data-sk="perPage" value="1">1枚</label>
