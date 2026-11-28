@@ -415,6 +415,10 @@ await test('軽さ: コマを選ぶ・動かす時に表全体を作り直さず
   await pg.evaluate(() => document.getElementById('tab-edit').click()); await pg.waitForTimeout(400);
   k = await kept();
   assert(k.kept === k.rows, '別の画面から戻っただけで表が作り直された: ' + JSON.stringify(k));
+  // 何もしていない時に動き続けるアニメーションが無いこと（1つでもあると、操作していなくても画面が働き続けて全体が重くなる）
+  await pg.mouse.move(5, 5); await pg.waitForTimeout(2600);
+  const running = await pg.evaluate(() => document.getAnimations().filter(x => x.playState === 'running').map(x => x.animationName || 'transition'));
+  assert(running.length === 0, '止まらないアニメーションがある: ' + running.join(','));
   assert(!pg.errs.length, pg.errs.join(' | '));
   await pg.close2();
 });

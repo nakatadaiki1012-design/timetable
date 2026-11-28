@@ -431,6 +431,8 @@
       if (!td) return;
       ev.preventDefault();
       ev.dataTransfer.dropEffect = 'move';
+      // 同じマスの上にいる間は何もしない（ブラウザは止まっていてもこの合図を出し続けるので、毎回描き直すと重い）
+      if (td.classList.contains('drop-hint')) return;
       // 既存のhint解除
       live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
       td.classList.add('drop-hint');
@@ -446,6 +448,14 @@
         live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
       }
     };
+    // ドラッグをやめた時（Escで取り消した・表の外で離した）も、列の色付けを消す。以前は残ったままになった
+    if (!live._dragEndBound) {
+      live._dragEndBound = true;
+      window.addEventListener('dragend', () => {
+        live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
+        live.querySelectorAll('.col-drag-over').forEach(el => el.classList.remove('col-drag-over'));
+      });
+    }
     live.ondrop = (ev) => {
       ev.preventDefault();
       live.querySelectorAll('.drop-hint').forEach(el => el.classList.remove('drop-hint'));
